@@ -435,15 +435,18 @@ struct Labeler::Impl {
         // (1 <= x <= width-2), where all eight neighbours are in range and read
         // as plain array accesses.
         auto pixel = [&](int x, auto checked) {
-            constexpr bool Checked = decltype(checked)::value;
+            // `checked` is std::true_type / std::false_type; branch on its type
+            // directly (a `constexpr bool` local tripped MSVC's constant
+            // evaluation inside the nested lambdas).
+            using Checked = decltype(checked);
             auto feat = [&](const Feature* row, int xx) -> int {
-                if constexpr (Checked)
+                if constexpr (Checked::value)
                     return (xx >= 0 && xx < width) ? int(row[xx]) : int(Feature::None);
                 else
                     return int(row[xx]);
             };
             auto lab = [&](const std::vector<int>& r, int xx) -> int {
-                if constexpr (Checked) return (xx >= 0 && xx < width) ? r[xx] : 0;
+                if constexpr (Checked::value) return (xx >= 0 && xx < width) ? r[xx] : 0;
                 else return r[xx];
             };
             // All eight neighbours, read once and reused by both the label

@@ -155,8 +155,10 @@ int main(int argc, char** argv) {
     if (src.width == 0) { std::printf("Error: cannot load '%s'\n", input.c_str()); return 1; }
 
     // 1-2. detect segments (link fragments for longer, more reliable lines) and
-    //      keep the long ones.
-    sweeplsd::Params params;
+    //      keep the long ones. If you know the camera intrinsics, prefer the
+    //      calibrated Manhattan-frame example (manhattan_frame.cpp) — it uses
+    //      the estimator configuration that measured best on YUD/NYU.
+    sweeplsd::Params params = sweeplsd::Params::improved();
     params.link_collinear = true;
     std::vector<sweeplsd::LineSegment> raw = sweeplsd::detect(src, params);
 

@@ -55,7 +55,7 @@ int main(int argc, char** argv) {
     std::printf("SweepLSD multi-pass, per stage:\n");
     std::printf("  %-20s %10s %8s\n", "stage", "ms", "%");
     for (const auto& s : stages)
-        std::printf("  %-20s %10.2f %7.1f%%\n", s.name, s.ms, 100.0 * s.ms / stage_sum);
+        std::printf("  %-20s %10.2f %7.1f%%\n", s.name.c_str(), s.ms, 100.0 * s.ms / stage_sum);
     std::printf("  %-20s %10.2f %7.1f%%\n", "(sum of stages)", stage_sum, 100.0);
 
     std::printf("\nTotals:\n");

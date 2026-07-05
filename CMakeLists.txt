@@ -14,6 +14,9 @@ endif()
 # the compiler may use. Options: avx2 | sse2 | native.
 set(SWEEPLSD_SIMD "avx2" CACHE STRING "SIMD ISA target: avx2 | sse2 | native")
 if(MSVC)
+  # Sources are UTF-8 (comments contain §, ×, …); without /utf-8 MSVC assumes
+  # the local code page and warns C4819 (or miscompiles string literals).
+  add_compile_options(/utf-8)
   if(SWEEPLSD_SIMD STREQUAL "avx2")
     add_compile_options(/arch:AVX2)
   endif()
@@ -84,6 +87,11 @@ option(SWEEPLSD_BUILD_EXAMPLES "Build example applications" ON)
 if(SWEEPLSD_BUILD_EXAMPLES)
   add_executable(sweeplsd_vp examples/vanishing_points.cpp)
   target_link_libraries(sweeplsd_vp PRIVATE sweeplsd::sweeplsd sweeplsd::io)
+
+  # Calibrated Manhattan-frame estimation with the estimator configuration
+  # that measured best for SweepLSD (unit-vote / vertical prior / strong search).
+  add_executable(sweeplsd_manhattan examples/manhattan_frame.cpp)
+  target_link_libraries(sweeplsd_manhattan PRIVATE sweeplsd::sweeplsd sweeplsd::io)
 endif()
 
 # Benchmarks against LSD (AGPL) and EDLines/ED_Lib. Third-party detector code

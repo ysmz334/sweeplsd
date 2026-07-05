@@ -62,6 +62,13 @@ Use as a CMake package: `find_package(sweeplsd CONFIG REQUIRED)` then link
 vendored stb), or `sweeplsd::opencv` (header-only `cv::Mat` adapter, a drop-in
 for OpenCV's LSD).
 
+**Compiler performance note.** The kernels contain no SIMD intrinsics by
+design (FPGA-oriented, readable); the speed comes from compiler
+auto-vectorization. GCC and Clang vectorize them fully (~15–18 ms/Full-HD).
+MSVC compiles and passes all tests but currently does not vectorize the byte
+kernels (~53 ms — about 3× slower); on Windows prefer MinGW-w64 or clang-cl
+for performance-critical use.
+
 ## How it works
 
 Five stages, all expressed as row streams over the raster sweep:
@@ -83,6 +90,17 @@ hysteresis, curve rejection, half-pixel lattice correction, …), each
 individually documented and benchmarked.
 
 The full explanation with per-stage figures is in `docs/` (GitHub Pages).
+
+## Examples
+
+- `examples/manhattan_frame.cpp` — **calibrated Manhattan-frame / vanishing
+  directions** with the estimator configuration that measured best for
+  SweepLSD on York Urban + NYU (each line votes once, vertical-prior seed,
+  strong candidate search): `sweeplsd_manhattan photo.jpg --focal 675`
+- `examples/vanishing_points.cpp` — uncalibrated sequential-RANSAC vanishing
+  points in image space (no intrinsics needed)
+- `examples/opencv_detect.cpp` — using SweepLSD from OpenCV code via the
+  header-only adapter
 
 ## Evaluation
 

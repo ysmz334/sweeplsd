@@ -7,6 +7,10 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+
+#ifndef M_PI  // not guaranteed by the standard; MSVC needs _USE_MATH_DEFINES
+#define M_PI 3.14159265358979323846
+#endif
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
