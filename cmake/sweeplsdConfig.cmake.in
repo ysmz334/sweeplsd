@@ -1,0 +1,11 @@
+@PACKAGE_INIT@
+
+# sweeplsd — readable SweepLSD line segment detector.
+# Provides imported targets:
+#   sweeplsd::sweeplsd   (core detector, no dependencies)
+#   sweeplsd::io      (stb-based image load / visualization helpers)
+#   sweeplsd::opencv  (header-only cv::Mat / cv::Vec4f adapter; link OpenCV yourself,
+#                   e.g. find_package(OpenCV REQUIRED); target_link_libraries(app
+#                   PRIVATE sweeplsd::opencv ${OpenCV_LIBS}))
+include("${CMAKE_CURRENT_LIST_DIR}/sweeplsdTargets.cmake")
+check_required_components(sweeplsd)

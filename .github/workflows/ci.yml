@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-test:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest,  cc: gcc,   cxx: g++,     name: linux-gcc }
+          - { os: ubuntu-latest,  cc: clang, cxx: clang++, name: linux-clang }
+          - { os: windows-latest, name: windows-msvc }
+          - { os: macos-latest,   name: macos-clang }
+    runs-on: ${{ matrix.os }}
+    name: ${{ matrix.name }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        # CI machines may lack AVX2; sse2 keeps the build portable. The kernels
+        # are ISA-agnostic (auto-vectorized), so this only affects speed.
+        run: >
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DSWEEPLSD_SIMD=sse2
+          ${{ matrix.cc && format('-DCMAKE_C_COMPILER={0} -DCMAKE_CXX_COMPILER={1}', matrix.cc, matrix.cxx) || '' }}
+      - name: Build
+        run: cmake --build build --config Release --parallel
+      - name: Test
+        run: ctest --test-dir build --build-config Release --output-on-failure
