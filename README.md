@@ -12,7 +12,11 @@ CPUs.
 University. This repository is a from-scratch C++17 reimplementation of that
 thesis plus measured improvements.)*
 
-<!-- TODO(v1.0): demo GIF here -->
+![One raster sweep: segments are emitted as the scan line passes their last row](assets/sweep.gif)
+
+*The detector really works like this: one top-to-bottom sweep, a few rows of
+state, and each segment is finalized the moment its last pixel passes
+(labelling trails the sweep by 7 rows).*
 
 ## Headline numbers
 
