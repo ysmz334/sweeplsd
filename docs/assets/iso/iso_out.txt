@@ -1,0 +1,39 @@
+isotropy probe: 1024x1024, orientation hist K=36 bins (5deg), length-weighted
+CoV = coeff. of variation of the histogram (0 = perfectly isotropic; lower better)
+
+== Siemens Star (72 sectors) ==
+  method              nseg     totLen      CoV
+  SweepLSD baseline     114      37143    0.743
+  SweepLSD improved     110      33079    0.739
+  SweepLSD imp+link     108      33003    0.738
+  LSD                  108      33414    0.509
+  EDLines-style        238      33016    0.757
+  EDLines (ED_Lib)     108      33327    0.585
+
+== Zone Plate (cos r^2, 26 cyc) ==
+  method              nseg     totLen      CoV
+  SweepLSD baseline     237      25570    2.073
+  SweepLSD improved      27        826    1.576
+  SweepLSD imp+link      27        826    1.576
+  LSD                  859      56810    0.175
+  EDLines-style        810      58065    0.474
+  EDLines (ED_Lib)     675      43423    0.241
+
+== Concentric Circles (16px) ==
+  method              nseg     totLen      CoV
+  SweepLSD baseline      66      14752    3.383
+  SweepLSD improved       0          0    0.000
+  SweepLSD imp+link       0          0    0.000
+  LSD                 1796      95731    0.128
+  EDLines-style       1661      90455    0.336
+  EDLines (ED_Lib)    1768      91664    0.168
+
+== Angular Line Fan (48 lines) ==
+  method              nseg     totLen      CoV
+  SweepLSD baseline     676     156384    1.510
+  SweepLSD improved     198      78451    0.212
+  SweepLSD imp+link     167      66549    0.261
+  LSD                  302      79585    0.178
+  EDLines-style        345      75636    0.478
+  EDLines (ED_Lib)     193      79639    0.200
+

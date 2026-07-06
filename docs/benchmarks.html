@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SweepLSD — speed benchmarks</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body><div class="wrap">
+
+<h1>Speed benchmarks</h1>
+<p class="sub">Full-HD photographs, single thread. All baselines are the genuine author
+implementations, built with the same ISA target (AVX2).</p>
+<nav><a href="index.html">Algorithm</a> <a href="benchmarks.html"><b>Speed</b></a>
+<a href="evaluation.html">Quality</a> <a href="vp_evaluation.html">Vanishing points</a></nav>
+
+<h2>1. Dataset-wide timing (150 Full-HD photos)</h2>
+<p>Median per-image processing time over the 150-photo Waseda dataset (1920×1080, 8-bit
+grayscale — the input format the original thesis evaluated on). CPU: Intel i7-8700K,
+GCC (MinGW-w64) <code>-O3 -mavx2</code>; LSD is the canonical implementation
+(von Gioi et al., IPOL 1.6); EDLines is the authors' ED_Lib built with MSVC
+<code>/O2 /arch:AVX2</code> + OpenCV.</p>
+<table><thead><tr><th>detector</th><th>median time / frame</th><th>relative</th><th>memory for intermediates</th></tr></thead><tbody>
+<tr><td class="sweep">SweepLSD improved (one-pass)</td><td class="best">17.2 ms</td><td class="best">1×</td><td class="best">O(width)</td></tr>
+<tr><td>SweepLSD baseline (multi-pass)</td><td>18.1 ms</td><td>1.05×</td><td>O(pixels)</td></tr>
+<tr><td>SweepLSD improved (multi-pass)</td><td>21.5 ms</td><td>1.25×</td><td>O(pixels)</td></tr>
+<tr><td>EDLines (ED_Lib)</td><td>43.0 ms</td><td>2.5×</td><td>O(pixels)</td></tr>
+<tr><td>LSD</td><td>247 ms</td><td>14×</td><td>O(pixels)</td></tr>
+</tbody></table>
+<p>Typical segment counts on a rich urban photo: SweepLSD improved 3108, LSD 2938,
+EDLines 2780 — the speed does not come from detecting less.</p>
+
+<h2>2. Where the time goes</h2>
+<p>Per-stage profile (<code>sweeplsd_profile</code>, median of 9 runs, one Full-HD photo,
+multi-pass driver so stages are separable):</p>
+<table><thead><tr><th>stage</th><th>ms</th><th>share</th></tr></thead><tbody>
+<tr><td>1. gaussian</td><td>2.1</td><td>11%</td></tr>
+<tr><td>2. gradient</td><td>2.2</td><td>12%</td></tr>
+<tr><td>3. edge (threshold + NMS)</td><td>1.6</td><td>9%</td></tr>
+<tr><td>4. endpoint candidates</td><td>3.0</td><td>16%</td></tr>
+<tr><td>5. labelling + judgment</td><td>9.6</td><td>52%</td></tr>
+</tbody></table>
+<p>Stages 1–4 are the auto-vectorized row kernels; stage 5 is the streaming labeller
+(inherently more scalar — per-pixel label bookkeeping). The one-pass driver runs the same
+kernels but keeps only a few rows of each intermediate, so its working set stays in L1/L2 —
+which is why it is <i>faster</i> than the multi-pass driver despite doing identical work.</p>
+
+<h2>3. Compiler dependence (measured honestly)</h2>
+<p>The kernels contain no SIMD intrinsics by design; the speed comes from compiler
+auto-vectorization.</p>
+<table><thead><tr><th>compiler</th><th>Full-HD detect</th><th style="text-align:left">note</th></tr></thead><tbody>
+<tr><td>GCC (MinGW-w64 8.1)</td><td class="best">15–18 ms</td><td style="text-align:left">fully vectorizes the byte kernels</td></tr>
+<tr><td>MSVC 2022</td><td>~53 ms</td><td style="text-align:left">correct (all tests pass) but does not vectorize the byte kernels — prefer MinGW-w64 or clang-cl on Windows</td></tr>
+</tbody></table>
+
+<div class="note"><b>Reproduce it.</b> <code>cmake -DSWEEPLSD_BUILD_BENCH=ON</code> fetches the
+baseline detectors at configure time (LSD is AGPL-3.0 and is deliberately <i>not</i> vendored
+in this MIT repository), then run <code>sweeplsd_time_methods &lt;dir-of-pngs&gt;</code>.
+Genuine-EDLines timings need OpenCV (<code>sweeplsd_edlines_runner</code> is built
+automatically when OpenCV is found).</div>
+
+<footer>Measured 2026-07 on i7-8700K. One caveat repeated from the fairness notes: LSD's
+official implementation is single-scale and unoptimised C — its 247 ms is the price of its
+a-contrario validation, not of carelessness; on the quality axis it remains an excellent
+detector (see the quality page).</footer>
+</div></body></html>

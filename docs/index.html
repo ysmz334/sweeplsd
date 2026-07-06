@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SweepLSD — how it works</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body><div class="wrap">
+
+<h1>SweepLSD — how it works</h1>
+<p class="sub">One sweep, all segments. A one-pass, O(width)-memory line segment detector
+with an integer-only streaming core.</p>
+<nav><a href="index.html"><b>Algorithm</b></a> <a href="benchmarks.html">Speed</a>
+<a href="evaluation.html">Quality</a> <a href="vp_evaluation.html">Vanishing points</a></nav>
+
+<img class="wide" src="assets/hero_segments.png" alt="SweepLSD segments on a Full-HD photo">
+<p class="sub" style="margin-top:4px">Full-HD photo, 3108 segments in ~17 ms (one detector sweep, single thread).</p>
+
+<div class="key"><b>The idea.</b> Most line segment detectors hold the whole image (and several
+full-size intermediates) in memory and revisit pixels many times. SweepLSD instead treats the
+image as a <b>row stream</b>: every stage — smoothing, gradient, edge thinning, endpoint
+detection, labelling, even the final line test — is expressed so that it only ever needs
+<b>a few rows of state</b>. The image flows through once, top to bottom, and segments fall out
+as their last pixel passes by. That is what makes the design FPGA-friendly (the algorithm was
+designed for hardware in a 2014 master's thesis, where it was called <i>OPLSD</i>), and it is
+also why it is fast on CPUs: the working set stays in cache.</div>
+
+<h2>1. The pipeline</h2>
+<p>Five stages, each a simple row kernel. The figures below are the actual intermediates
+(<code>sweeplsd_dump_stages</code>) on a 960×540 photo.</p>
+
+<div class="gallery">
+<figure><img src="assets/stages/00_source.png"><figcaption>input (8-bit grayscale)</figcaption></figure>
+<figure><img src="assets/stages/01_gaussian.png"><figcaption>1. gaussian 5×5, integer, {16,64,96,64,16}</figcaption></figure>
+<figure><img src="assets/stages/02_power.png"><figcaption>2. gradient power (2×2 operator)</figcaption></figure>
+<figure><img src="assets/stages/03_edge.png"><figcaption>3. threshold + NMS → 1-px edges</figcaption></figure>
+<figure><img src="assets/stages/04_feature.png"><figcaption>4. endpoint candidates (red) on edges</figcaption></figure>
+<figure><img src="assets/stages/05_segments.png"><figcaption>5. labelled + judged → segments</figcaption></figure>
+</div>
+
+<ol>
+<li><b>Gaussian.</b> Separable 5×5 blur with weights {16,64,96,64,16}, all integer, one
+final <code>&gt;&gt;10</code> rescale. The vertical pass fits exactly in uint16, so the compiler
+auto-vectorizes it 16 lanes wide.</li>
+<li><b>Gradient.</b> A 2×2 operator on the smoothed image; power = (|dx|+|dy|+1)/2 and a
+direction quantised to just <i>horizontal</i> or <i>vertical</i> — that is all the NMS needs.</li>
+<li><b>Edge.</b> Threshold on the power plus non-maximum suppression along the dominant
+gradient axis, branch-free.</li>
+<li><b>Endpoint candidates.</b> A 5×5 ring test marks edge pixels where a segment starts,
+ends, branches or corners. These delimit the pixel runs that may become segments.</li>
+<li><b>Labelling + judgment.</b> A row-streaming connected-component labeller carries, per
+label, running <i>scatter moments</i> (Σx, Σy, Σx², Σxy, Σy², count). When a label dies
+(no pixel continues it), a segment is emitted iff it has enough pixels and the PCA eigenvalue
+ratio of its scatter says "thin and straight". The moments also give sub-pixel endpoints and
+the line direction for free.</li>
+</ol>
+
+<h2>2. The one-pass architecture</h2>
+<p>The library ships <b>two drivers over the same kernels</b>, tested to produce identical
+output:</p>
+<table><thead><tr><th>driver</th><th style="text-align:left">what it does</th><th>memory</th><th>speed (Full-HD)</th></tr></thead><tbody>
+<tr><td><code>detect()</code></td><td style="text-align:left">one full-image pass per stage — easiest to read and debug</td><td>O(pixels)</td><td>~18–21 ms</td></tr>
+<tr><td><code>detectOnePass()</code></td><td style="text-align:left">single top-to-bottom sweep; each stage keeps only the rows the next stage needs; labelling trails the input by 7 rows</td><td class="best">O(width)</td><td class="best">~15–17 ms</td></tr>
+</tbody></table>
+<p>The per-pixel core is <b>integer-only</b> (the thesis targeted an FPGA datapath);
+floating point appears only in the once-per-segment finalization (PCA, endpoint projection).
+There are <b>no SIMD intrinsics anywhere</b> — the kernels are written so GCC/Clang
+auto-vectorize them, which keeps the code readable and portable.</p>
+
+<h2>3. Faithful baseline + measured improvements</h2>
+<p><code>Params{}</code> reproduces the 2014 thesis behaviour. <code>Params::improved()</code>
+enables a set of improvements, each of which was added only after measuring its effect on the
+three evaluation axes (synthetic-GT F-score, real-photo inspection, downstream vanishing
+points):</p>
+<table><thead><tr><th>improvement</th><th style="text-align:left">what</th><th style="text-align:left">measured effect</th></tr></thead><tbody>
+<tr><td>strict NMS tie-break</td><td style="text-align:left">gradient plateaus thin to 1 px instead of 2</td><td style="text-align:left">cleaner edges, fewer duplicate labels</td></tr>
+<tr><td>sub-pixel NMS</td><td style="text-align:left">parabolic peak interpolation accumulated into the moments</td><td style="text-align:left">lateral error ↓</td></tr>
+<tr><td>streaming hysteresis</td><td style="text-align:left">low extraction threshold + per-label strong-pixel requirement; the low threshold adapts to the image noise floor (O(1) state)</td><td style="text-align:left">recall ↑ on clean images without flooding noisy ones</td></tr>
+<tr><td>endpoints from projection extremes</td><td style="text-align:left">bounding-box corners projected on the fitted axis</td><td style="text-align:left">robust when a label has &gt;2 endpoint contacts</td></tr>
+<tr><td>curve rejection</td><td style="text-align:left">absolute bound on the perpendicular RMS spread</td><td style="text-align:left">circles/arcs rejected by design (see the isotropy page)</td></tr>
+<tr><td>border margin</td><td style="text-align:left">drop segments hugging the image frame</td><td style="text-align:left">removes a 2×2-gradient boundary artifact</td></tr>
+<tr><td>half-pixel lattice shift</td><td style="text-align:left">the 2×2 gradient lives on pixel <i>corners</i>; output is shifted +0.5 px (canonical LSD applies the same correction)</td><td style="text-align:left">systematic −0.5 px bias → 0; lateral error 0.92→0.12 px</td></tr>
+</tbody></table>
+<p>All improvements preserve the streaming / O(width) property; when every flag is off the
+output is bit-identical to the faithful baseline.</p>
+
+<div class="note"><b>Known limitation, stated plainly.</b> SweepLSD's edge model is
+<i>contrast-gated</i>: a pixel becomes an edge only if its gradient peak clears a threshold.
+Soft, wide luminance ramps (dim wall corners, defocused structure) never form a peak, so
+LSD / EDLines — which link pixels by <i>orientation coherence</i> instead — recover some
+low-contrast structure SweepLSD misses. The quality and vanishing-point pages quantify
+exactly when this matters and when it does not.</p></div>
+
+<footer>SweepLSD documentation. Figures regenerated with <code>sweeplsd_dump_stages</code> /
+<code>sweeplsd_cli</code> from this repository. Sample photograph from the Waseda dataset
+(used with permission).</footer>
+</div></body></html>
