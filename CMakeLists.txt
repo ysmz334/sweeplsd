@@ -11,25 +11,37 @@ endif()
 
 # SIMD instruction-set target for the whole build. The kernels contain no
 # intrinsics; they are written to auto-vectorize, so this only picks the ISA
-# the compiler may use. Options: avx2 | sse2 | native.
-set(SWEEPLSD_SIMD "avx2" CACHE STRING "SIMD ISA target: avx2 | sse2 | native")
+# the compiler may use. Options: avx2 | sse2 | native | none.
+# The avx2/sse2 values are x86-only and are ignored (with a note) on other
+# architectures — e.g. ARM64, where NEON is baseline and needs no flag.
+set(SWEEPLSD_SIMD "avx2" CACHE STRING "SIMD ISA target: avx2 | sse2 | native | none")
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "(x86_64|AMD64|amd64|i.86)")
+  set(SWEEPLSD_ARCH_X86 TRUE)
+else()
+  set(SWEEPLSD_ARCH_X86 FALSE)
+endif()
 if(MSVC)
   # Sources are UTF-8 (comments contain §, ×, …); without /utf-8 MSVC assumes
   # the local code page and warns C4819 (or miscompiles string literals).
   add_compile_options(/utf-8)
-  if(SWEEPLSD_SIMD STREQUAL "avx2")
+  if(SWEEPLSD_SIMD STREQUAL "avx2" AND SWEEPLSD_ARCH_X86)
     add_compile_options(/arch:AVX2)
   endif()
 else()
-  if(SWEEPLSD_SIMD STREQUAL "avx2")
-    add_compile_options(-mavx2 -mfma)
-  elseif(SWEEPLSD_SIMD STREQUAL "sse2")
-    add_compile_options(-msse2)
-  elseif(SWEEPLSD_SIMD STREQUAL "native")
+  if(SWEEPLSD_SIMD STREQUAL "native")
     add_compile_options(-march=native)
+  elseif(SWEEPLSD_ARCH_X86)
+    if(SWEEPLSD_SIMD STREQUAL "avx2")
+      add_compile_options(-mavx2 -mfma)
+    elseif(SWEEPLSD_SIMD STREQUAL "sse2")
+      add_compile_options(-msse2)
+    endif()
+  elseif(NOT SWEEPLSD_SIMD STREQUAL "none")
+    message(STATUS "SweepLSD: SWEEPLSD_SIMD=${SWEEPLSD_SIMD} is x86-only; "
+                   "no ISA flag added for ${CMAKE_SYSTEM_PROCESSOR} (NEON etc. is baseline)")
   endif()
 endif()
-message(STATUS "SweepLSD SIMD target: ${SWEEPLSD_SIMD}")
+message(STATUS "SweepLSD SIMD target: ${SWEEPLSD_SIMD} (processor: ${CMAKE_SYSTEM_PROCESSOR})")
 
 # Core SweepLSD library: the pipeline stages plus the two drivers (multi-pass
 # and streaming one-pass). No third-party dependency — C++ standard library only.

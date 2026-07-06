@@ -93,7 +93,7 @@ the fastest configuration). `Params{}` reproduces the 2014 thesis;
 hysteresis, curve rejection, half-pixel lattice correction, …), each
 individually documented and benchmarked.
 
-The full explanation with per-stage figures is in `docs/` (GitHub Pages).
+The full explanation with per-stage figures is in [the docs](https://ysmz334.github.io/sweeplsd/).
 
 ## Examples
 

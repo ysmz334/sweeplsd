@@ -11,7 +11,11 @@
 #include <string>
 #include <vector>
 
-#include <filesystem>
+#ifdef _WIN32
+#include <io.h>          // _findfirst — works on both MSVC and MinGW
+#else
+#include <dirent.h>
+#endif
 
 #include "edlines.hpp"
 #include "edreal_io.hpp"
@@ -85,12 +89,23 @@ int main(int argc, char** argv) {
         else if (a == "--edreal-dir" && i + 1 < argc) edreal_dir = argv[++i];
     }
 
+    // Portable directory listing (GCC 8.1's <filesystem> is broken, so no std::filesystem).
     std::vector<std::string> names;
-    std::error_code ec;
-    for (const auto& e : std::filesystem::directory_iterator(indir, ec)) {
-        std::string fn = e.path().filename().string();
-        if (isPng(fn.c_str())) names.push_back(fn);
+#ifdef _WIN32
+    _finddata_t fd;
+    intptr_t h = _findfirst((indir + "/*").c_str(), &fd);
+    if (h != -1) {
+        do {
+            if (isPng(fd.name)) names.push_back(fd.name);
+        } while (_findnext(h, &fd) == 0);
+        _findclose(h);
     }
+#else
+    if (DIR* d = opendir(indir.c_str())) {
+        for (dirent* e; (e = readdir(d));) if (isPng(e->d_name)) names.push_back(e->d_name);
+        closedir(d);
+    }
+#endif
     std::sort(names.begin(), names.end());
     if ((int)names.size() > limit) names.resize(limit);
     if (names.empty()) { std::printf("no .png in %s\n", indir.c_str()); return 1; }
