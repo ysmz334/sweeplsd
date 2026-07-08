@@ -95,6 +95,34 @@ individually documented and benchmarked.
 
 The full explanation with per-stage figures is in [the docs](https://ysmz334.github.io/sweeplsd/).
 
+## On real hardware (FPGA)
+
+The thesis proposed OPLSD as a frame-buffer-free, one-pass method aimed at
+hardware, but implemented it only in software; the FPGA form was left as future
+work. This repository closes that gap.
+
+SweepLSD has been reimplemented as **synthesizable HLS C++** and as **portable
+Verilog RTL**, and runs **live on a Digilent Atlys** (Xilinx Spartan-6 LX45 —
+2009 silicon): **HDMI in → detect → green segment overlay → HDMI out**, at
+Full-HD **1080p30** (and 720p60), with **no frame buffer and no external
+memory** — the detector's entire state is a few line buffers in on-chip block
+RAM (~70 KiB, the budget the thesis targeted).
+
+The hardware is held to the same standard as the software: the RTL is
+**bit-exact** against the C++ `detect()` reference and the HLS C model —
+identical segments over the full test corpus, including 1920×1080 photos
+(SW == HLS == RTL is the standing acceptance gate). The `improved()` refinements
+that fit the streaming/integer model — strict NMS, half-pixel lattice,
+bounding-box endpoints, streaming hysteresis, curve rejection, border
+rejection — are all in the hardware too.
+
+<!-- ![SweepLSD running live on the Atlys: HDMI-in video with a green segment overlay](assets/fpga_demo.jpg) -->
+*(Live-demo photo/video: coming soon.)*
+
+Board build & the one third-party dependency (Xilinx XAPP495 HDMI PHY, fetched
+separately) → [`rtl/boards/atlys/README.md`](rtl/boards/atlys/README.md);
+architecture & verification → [`rtl/DESIGN.md`](rtl/DESIGN.md).
+
 ## Examples
 
 - `examples/manhattan_frame.cpp` — **calibrated Manhattan-frame / vanishing
