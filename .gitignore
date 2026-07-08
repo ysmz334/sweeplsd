@@ -22,6 +22,7 @@ vitis-run.log
 rtl/boards/atlys/demo_out/
 rtl/boards/atlys/synth_core/
 rtl/boards/atlys/synth_smoke/
+rtl/hw_sim_out/
 
 # Xilinx XAPP495 DVI reference design (Digilent/Xilinx app-note licensed):
 # needed locally to build the Atlys board, but NOT redistributable in this

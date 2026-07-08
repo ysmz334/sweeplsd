@@ -146,6 +146,9 @@ module live_core #(
         // clamp-low 120, and a >= 3 strong-pixel gate (matches --improved).
         .hyst_on(strict), .hyst_adaptive(1'b1),
         .hyst_low(16'd120), .hyst_strong_min(18'd3),
+        // (i) border margin 3 + (h) max_perp_spread=1 (2*mps^2 = 2) also follow
+        // the improved toggle (matches --improved / Params::improved()).
+        .border(strict ? 4'd3 : 4'd0), .mps_2sq(strict ? 5'd2 : 5'd0),
         .px_valid(de_r), .px(gray_r), .px_ready(px_ready),
         .px_x(), .px_y(), .px_addr_x(), .px_addr_y(),
         .busy(busy),

@@ -27,6 +27,12 @@
 `ifndef HYST_MIN
 `define HYST_MIN 3
 `endif
+`ifndef BORDER
+`define BORDER 0
+`endif
+`ifndef MPS_2SQ
+`define MPS_2SQ 0
+`endif
 
 module tb_sweep_core;
     localparam integer W = `IMG_W;
@@ -70,6 +76,7 @@ module tb_sweep_core;
         .hyst_on(`HYST_ON != 0), .hyst_adaptive(`HYST_ADAPT != 0),
         .hyst_low(16'd`HYST_LOW), .hyst_strong_min(18'd`HYST_MIN),
         .pix_th(18'd`PIX_TH),
+        .border(4'd`BORDER), .mps_2sq(5'd`MPS_2SQ),
         .px_valid(px_valid), .px(px), .px_ready(px_ready), .busy(busy),
         .rec_valid(rec_valid),
         .rec_sx(rec_sx), .rec_sy(rec_sy), .rec_ex(rec_ex), .rec_ey(rec_ey),

@@ -11,6 +11,11 @@ front-end → sparse event FIFO → elastic labelling back-end → segment recor
 This phase re-expresses it in portable Verilog because Spartan-6 is not a
 Vitis HLS target (ISE 14.7 only).
 
+> **Building the board bitstream** (ISE 14.7) and the third-party licensing of
+> the HDMI glue — in particular the Xilinx **XAPP495** DVI reference design,
+> which is git-ignored and must be fetched separately — are documented in
+> [`boards/atlys/README.md`](boards/atlys/README.md).
+
 ## Verification strategy (same standard as phase 1)
 
 Bit-exactness against `sweeplsd::detect()` stays the acceptance criterion:
@@ -119,6 +124,38 @@ buffers), so `frame_start` clears it; each frame cold-starts exactly like a
 fresh `detect()`. Skipping this only diverges from the golden on the SECOND
 frame of a real photo — the FullHD 2-frame regression is what catches it.
 
+### (h) Max-perp-spread + (i) border margin (v2d)
+
+Both are **once-per-segment judge-level rejections** — no per-pixel or labelling
+change — so both fold into the existing back-end at essentially zero cost and
+stay three-way (SW/HLS/RTL) bit-exact.
+
+- **(h) curve rejection.** A curved arc bows off its chord, inflating the smaller
+  eigenvalue of the *normalised* covariance (the perpendicular variance in px²);
+  the aspect-ratio test alone misses short low-curvature arcs. SW rejects when
+  `ev_min = ½(T−R)/N² > max_perp_spread²` (default 1). This is done sqrt-free and
+  **inside the existing 128-bit judge**: with `A := T − 2·mps²·N²`, reject iff
+  `A > 0 && A² > R²`, reusing the aspect test's `T` and `R²` (`A²`, `R²` ≈ u118,
+  well under 128). In `judge_unit.v` it is two extra products (`N²`, then `A²`)
+  time-multiplexed onto the same shared multiplier — a handful more cycles on the
+  already-off-critical-path judge. Unlike (c), it does **not** grow the datapath.
+- **(i) border margin.** The 2×2 gradient biases the very edge of the frame, so a
+  ring of spurious segments traces the border. Defined as a **bounding-box
+  rejection**: drop a segment whose bbox reaches within `border` (=3) px of the
+  frame — `min_x < b || max_x ≥ w−b || min_y < b || max_y ≥ h−b`, a pure integer
+  compare on the record's own extremes, applied at record emission in `backend.v`
+  (companion to the (d) strong-count gate). *(The thesis-prose per-pixel "skip
+  labelling border pixels" form was tried first but is fundamentally incompatible
+  with the RTL's `Interior ⇒ labelled` invariant and its `w_sav`/row-tag carries —
+  an unlabelled-but-featured pixel makes a neighbour chase a stale label. The bbox
+  form removes the identical frame artifacts — same accepted counts on the whole
+  corpus, e.g. IMGP1033 2027, IMGP0942 2936 — and was adopted uniformly in
+  SW/HLS/RTL so the three stay bit-exact.)*
+
+The RTL "improved" configuration is therefore **(a) strict NMS + (j) half-pixel
+shift + (f) bbox endpoints + (d) adaptive hysteresis + (h) max-perp-spread +
+(i) border margin** — all six three-way (SW/HLS/RTL) bit-exact.
+
 ### (c) Sub-pixel NMS — SW/HLS reference only (out of RTL scope)
 
 Improvement (c) fits a parabola through the three NMS-axis power samples of each
@@ -143,9 +180,10 @@ C model but is deliberately NOT ported to this board RTL, for two reasons:
   maximum), plus a wider event word (delta+dir) and wider moment/record fields —
   a large datapath change for a sub-visible gain.
 
-The RTL "improved" configuration is therefore FINAL at **(a) strict NMS + (j)
-half-pixel shift + (f) bbox endpoints + (d) adaptive hysteresis** — all four
-three-way (SW/HLS/RTL) bit-exact. (c) remains a SW/HLS-level refinement.
+The RTL "improved" configuration is therefore **(a) strict NMS + (j) half-pixel
+shift + (f) bbox endpoints + (d) adaptive hysteresis + (h) max-perp-spread +
+(i) border margin** (see the v2d subsection above) — all six three-way
+(SW/HLS/RTL) bit-exact. (c) sub-pixel NMS remains a SW/HLS-level refinement.
 
 ## Back-end FSM (from `../hls/src/backend.cpp`)
 

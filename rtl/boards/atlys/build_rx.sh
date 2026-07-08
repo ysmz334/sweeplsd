@@ -52,7 +52,12 @@ xst -ifn top_rx.xst < /dev/null
 echo "== ngdbuild =="
 ngdbuild -uc ../atlys_rx.ucf -p xc6slx45-3-csg324 top_rx.ngc top_rx.ngd
 echo "== map =="
-map -p xc6slx45-3-csg324 -w -o top_rx_map.ncd top_rx.ngd top_rx.pcf
+# -t 2: placer cost table 2 closes timing at Score 0. Cost table 1 (default)
+# leaves the adaptive-hysteresis percentile-scan path (u_hist snap->found_b, 12
+# levels) ~0.57ns short once the v2d (h)/(i) judge/emit logic shares the pixel
+# clock domain — a placement variance, not a logic path (par -t is disabled on
+# Spartan-6, so the cost table is explored via map). Tables 2 and 4 both give 0.
+map -p xc6slx45-3-csg324 -w -t 2 -o top_rx_map.ncd top_rx.ngd top_rx.pcf
 echo "== par =="
 par -w -ol high top_rx_map.ncd top_rx.ncd top_rx.pcf
 echo "== bitgen =="

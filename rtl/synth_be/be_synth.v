@@ -42,6 +42,7 @@ module be_synth (
         .clk(clk), .rst(rst), .en(en),
         .width(12'd1280), .height(12'd720), .pix_th(18'd15),
         .hyst_on(1'b1), .hyst_strong_min(18'd3),
+        .border(4'd3), .mps_2sq(5'd2),   // (i)+(h) improved subset (timing)
         .ev_empty(fifo_empty), .ev_kind(fifo_front[13:12]),
         .ev_x(fifo_front[11:0]), .ev_strong(fifo_front[14]), .ev_pop(fifo_pop),
         .rec_valid(rec_valid),

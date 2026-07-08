@@ -29,6 +29,7 @@ module judge_unit (
     input  wire [40:0]  yss,         // Sigma y^2
     input  wire [40:0]  xys,         // Sigma x*y
     input  wire [17:0]  pix_th,
+    input  wire [4:0]   mps_2sq,     // (h) 2*max_perp_spread^2 (0 = off)
 
     output reg          busy,
     output reg          done,        // 1-cycle pulse
@@ -81,6 +82,13 @@ module judge_unit (
     reg [29:0]  r_xs, r_ys;
     reg [40:0]  r_xss, r_yss, r_xys;
 
+    // (h) max_perp_spread: two extra products (N^2, then A^2 with A = T-2*mps^2*N^2)
+    reg [4:0]   r_mps;             // 2*max_perp_spread^2 (0 = off)
+    reg         a_pos;            // A > 0 (else no perp reject possible)
+    reg [127:0] ha2;             // A^2  (compared against R^2 = r2_r)
+    // threshold = 2*mps^2 * N^2 ; N^2 = acc when the N*N product just finished.
+    wire [46:0] mps_thr = acc[41:0] * r_mps;
+
     wire [29:0] a_lo = op_a[29:0];
     wire [29:0] a_hi = op_a[59:30];
     wire [29:0] b_lo = op_b[29:0];
@@ -102,6 +110,7 @@ module judge_unit (
             S_IDLE: if (start) begin
                 r_n <= n; r_xs <= xs; r_ys <= ys;
                 r_xss <= xss; r_yss <= yss; r_xys <= xys;
+                r_mps <= mps_2sq; a_pos <= 1'b0;
                 if (n < pix_th) begin
                     accept <= 1'b0;
                     done <= 1'b1;        // early reject, stay idle
@@ -168,8 +177,27 @@ module judge_unit (
                         d2 <= acc;
                         op_a <= v_mb; op_b <= v_mb;
                     end
-                    default: begin      // prod == 8: mb^2 ready
+                    4'd8: begin         // mb^2 ready
                         mb2 <= acc;
+                        if (r_mps != 5'd0) begin
+                            op_a <= {42'd0, r_n};   // N^2 = n*n  (prod 9)
+                            op_b <= {42'd0, r_n};
+                        end else begin
+                            state <= S_CMP0;        // (h) off: straight to compare
+                        end
+                    end
+                    4'd9: begin         // N^2 ready in acc; A = T - 2*mps^2*N^2
+                        if (v_T > {13'd0, mps_thr}) begin
+                            a_pos <= 1'b1;          // A > 0: compute A^2 (prod 10)
+                            op_a <= v_T - {13'd0, mps_thr[46:0]};
+                            op_b <= v_T - {13'd0, mps_thr[46:0]};
+                        end else begin
+                            a_pos <= 1'b0;          // A <= 0: no perp reject
+                            state <= S_CMP0;
+                        end
+                    end
+                    default: begin      // prod == 10: A^2 ready
+                        ha2 <= acc;
                         state <= S_CMP0;
                     end
                 endcase
@@ -194,7 +222,10 @@ module judge_unit (
                 state <= S_CMP3;
             end
             S_CMP3: begin
-                accept <= (v_T != 60'd0) && !(lhs_r > rhs_r);
+                //   aspect: !(361*T^2 > 441*R^2)   AND
+                //   (h) perp: !(A>0 && A^2 > R^2)   with A = T - 2*mps^2*N^2
+                accept <= (v_T != 60'd0) && !(lhs_r > rhs_r)
+                          && !(a_pos && (ha2 > r2_r));
                 busy <= 1'b0;
                 done <= 1'b1;
                 state <= S_DONE;

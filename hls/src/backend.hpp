@@ -54,13 +54,17 @@ struct SegmentRecord {
 // criterion 1 (thesis default 15); the eigenvalue-ratio bound is the exact
 // rational kAspectNum/kAspectDen in hls_types.hpp (= the baseline 0.05).
 // `hyst.strong_min` gates (d) hysteresis (0 / off = no gate).
+// `border_margin` (i) skips labelling interior pixels within N px of the frame;
+// `mps_2sq` (h) = 2*max_perp_spread^2 as an integer (0 = off) rejects segments
+// whose smaller normalised covariance eigenvalue exceeds max_perp_spread^2.
 void sweeplsdBackend(hls::stream<Event>& events, hls::stream<SegmentRecord>& out,
-                     int width, int height, int pixel_num_th, const HystCfg& hyst);
+                     int width, int height, int pixel_num_th, const HystCfg& hyst,
+                     int border_margin = 0, int mps_2sq = 0);
 
 // Full core: front-end + back-end as one dataflow region.
 void sweeplsdCore(hls::stream<std::uint8_t>& src, hls::stream<SegmentRecord>& out,
                   int width, int height, int power_th, bool strict, int pixel_num_th,
-                  const HystCfg& hyst);
+                  const HystCfg& hyst, int border_margin = 0, int mps_2sq = 0);
 
 }  // namespace sweeplsd_hls
 

@@ -23,15 +23,17 @@ VECDIR=${VECDIR:-tb/vectors}
 FAIL=0
 for meta in "$VECDIR"/*_meta.txt; do
     name=$(basename "$meta" _meta.txt)
-    read -r w h power_th pix_th strict hyst_on hyst_adapt hyst_low hyst_min _rest < "$meta"
+    read -r w h power_th pix_th strict hyst_on hyst_adapt hyst_low hyst_min border mps_2sq _rest < "$meta"
     strict=${strict:-0}
     hyst_on=${hyst_on:-0}; hyst_adapt=${hyst_adapt:-0}
     hyst_low=${hyst_low:-120}; hyst_min=${hyst_min:-3}
+    border=${border:-0}; mps_2sq=${mps_2sq:-0}   # (i) border margin, (h) 2*mps^2
     iverilog -g2005 -o "tb/${TB}_${name}.vvp" \
         -DIMG_W="$w" -DIMG_H="$h" -DPOWER_TH="$power_th" -DPIX_TH="$pix_th" \
         -DSTRICT="$strict" \
         -DHYST_ON="$hyst_on" -DHYST_ADAPT="$hyst_adapt" \
         -DHYST_LOW="$hyst_low" -DHYST_MIN="$hyst_min" \
+        -DBORDER="$border" -DMPS_2SQ="$mps_2sq" \
         -DCE_DIV="${CE_DIV:-1}" \
         -DVEC="\"${VECDIR}/${name}\"" \
         "tb/${TB}.v" "$@"

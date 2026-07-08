@@ -103,10 +103,12 @@ struct Params {
     //     *absolute* bound (a short low-curvature arc passes the ratio test but
     //     not this). 0 = off. Once-per-segment; integer form is ev_min <= th^2.
     double max_perp_spread = 0.0;
-    // (i) border guard: ignore edge pixels within this many pixels of the image
-    //     frame during labelling, so the boundary artifact (the gaussian/gradient
-    //     step at the very edge gets detected as a rectangle tracing the frame)
-    //     is not emitted. 0 = off.
+    // (i) border margin: reject a segment whose bounding box reaches within this
+    //     many pixels of the image frame, so the boundary artifact (the gaussian/
+    //     gradient step at the very edge gets detected as segments tracing the
+    //     frame) is dropped. An integer bbox test on the segment's own extremes,
+    //     applied once per segment at judgment (so it is bit-exact SW/HLS/RTL and
+    //     needs no per-pixel labelling change). 0 = off.
     int border_margin = 0;
     // (j) gradient-lattice half-pixel correction. The 2x2 gradient operator
     //     samples the gradient at the CORNER between four pixels, i.e. at

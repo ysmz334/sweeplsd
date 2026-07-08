@@ -122,14 +122,23 @@ static void dumpImage(const std::string& dir, const std::string& name,
     if (params.use_hysteresis && params.hysteresis_adaptive && w < 64)
         params.hysteresis_adaptive = false;
 
+    // (h) 2*max_perp_spread^2 as an integer (0 = off; the default preset mps=1
+    // gives 2). Guard that it is integer-representable — the only value the RTL
+    // supports; other mps would need a rational threshold.
+    const int mps_2sq = params.max_perp_spread > 0.0
+                            ? int(2.0 * params.max_perp_spread * params.max_perp_spread + 0.5)
+                            : 0;
+
     // meta
     {
         std::FILE* f = std::fopen((base + "_meta.txt").c_str(), "w");
-        // width height power_th pix_th strict hyst_on hyst_adaptive hyst_low hyst_strong_min
-        std::fprintf(f, "%d %d %d %d %d %d %d %d %d\n", w, h, params.gradient_power_th,
+        // width height power_th pix_th strict hyst_on hyst_adaptive hyst_low
+        //   hyst_strong_min border_margin mps_2sq
+        std::fprintf(f, "%d %d %d %d %d %d %d %d %d %d %d\n", w, h, params.gradient_power_th,
                      params.pixel_num_th, params.nms_strict_tiebreak ? 1 : 0,
                      params.use_hysteresis ? 1 : 0, params.hysteresis_adaptive ? 1 : 0,
-                     params.hysteresis_low_th, params.hysteresis_strong_min);
+                     params.hysteresis_low_th, params.hysteresis_strong_min,
+                     params.border_margin, mps_2sq);
         std::fclose(f);
     }
 
@@ -174,7 +183,8 @@ static void dumpImage(const std::string& dir, const std::string& name,
         for (int x = 0; x < w; ++x) src_s2.write(src.at(x, y));
     hls::stream<H::SegmentRecord> rec_s;
     H::sweeplsdCore(src_s2, rec_s, w, h, params.gradient_power_th,
-                    params.nms_strict_tiebreak, params.pixel_num_th, hyst);
+                    params.nms_strict_tiebreak, params.pixel_num_th, hyst,
+                    params.border_margin, mps_2sq);
     {
         // One record per line: sx sy ex ey n xs ys xss yss xys, then the (f)
         // bbox extreme points minx minxy maxx maxxy miny minyx maxy maxyx
@@ -221,6 +231,8 @@ int main(int argc, char** argv) {
         params.use_hysteresis = true;       // adaptive (default) low threshold
         params.hysteresis_low_th = 120;
         params.hysteresis_strong_min = 3;
+        params.max_perp_spread = 1.0;       // (h) curve rejection (2*mps^2 = 2)
+        params.border_margin = 3;           // (i) drop frame-edge artifacts
         suffix = "_imp";
         ++argi;
     }

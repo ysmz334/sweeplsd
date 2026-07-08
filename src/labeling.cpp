@@ -254,6 +254,14 @@ struct Labeler::Impl {
     void judgeAndRegister(const LabelHot& L, int sx, int sy, int ex, int ey) {
         if (L.pix_num < params.pixel_num_th) return;
         if (params.use_hysteresis && int(L.strong_cnt) < params.hysteresis_strong_min) return;
+        // (i) border margin: drop a segment whose bounding box reaches within
+        // border_margin px of the frame (the 2x2 gradient bias fringes the image
+        // edge). A pure integer bbox test on the label's own extremes, so it is
+        // trivially bit-exact across SW / HLS / RTL.
+        if (params.border_margin > 0 && L.min_x != INT_MAX &&
+            (L.min_x < params.border_margin || L.max_x >= width - params.border_margin ||
+             L.min_y < params.border_margin || L.max_y >= height - params.border_margin))
+            return;
 
         // Centroid from the (weighted) moments; W == pix_num when unweighted.
         double W = L.w_sum;
@@ -410,7 +418,6 @@ struct Labeler::Impl {
         const bool subpix = params.subpixel_nms && delta != nullptr && dir != nullptr;
         const bool sparse = params.sparse_label_scan;
         const int strong_th = params.gradient_power_th;
-        const int bmargin = params.border_margin;
 
         if (params.use_nfa) {  // running edge density for the a-contrario test
             if (params.nfa_window_rows > 0) {  // improvement g: forget exponentially
@@ -514,10 +521,6 @@ struct Labeler::Impl {
             const int x_end = sparse ? std::min(x + 8, width) : width;
             for (; x < x_end; ++x) {
                 if (cur[x] != Feature::Interior) continue;
-                // (i) border guard: don't label pixels hugging the image frame.
-                if (bmargin > 0 && (x < bmargin || x >= width - bmargin ||
-                                    y < bmargin || y >= height - bmargin))
-                    continue;
                 if (x == 0 || x == width - 1) pixel(x, std::true_type{});
                 else pixel(x, std::false_type{});
             }

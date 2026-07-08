@@ -39,6 +39,9 @@ module backend #(
     input  wire [17:0]     pix_th,
     input  wire            hyst_on,          // (d) reject labels with too few
     input  wire [17:0]     hyst_strong_min,  //   strong (power >= high) pixels
+    input  wire [3:0]      border,           // (i) skip labelling interior pixels
+                                             //   within this many px of the frame
+    input  wire [4:0]      mps_2sq,          // (h) 2*max_perp_spread^2 (0 = off)
 
     // event input (FIFO pop interface: data valid with ev_pop's next cycle
     // handled by the caller presenting ev_kind/ev_x stably until popped)
@@ -256,6 +259,7 @@ module backend #(
         .clk(clk), .rst(rst), .en(en),
         .start(j_start), .n(j_n), .xs(j_xs), .ys(j_ys),
         .xss(j_xss), .yss(j_yss), .xys(j_xys), .pix_th(pix_th),
+        .mps_2sq(mps_2sq),
         .busy(j_busy), .done(j_done), .accept(j_accept)
     );
 
@@ -1038,7 +1042,15 @@ module backend #(
             // (d) hysteresis gate: reject if too few strong pixels. Independent
             // of the pix/aspect judge (all criteria are ANDed), so applying it
             // at emission matches the C model's early return in judgeAndEmit.
-            if (j_accept && !(hyst_on && f_scnt < hyst_strong_min)) begin
+            // (i) border margin: also reject if the finalised bounding box reaches
+            // within `border` px of the frame (same integer bbox test as the C
+            // model judgeAndEmit; f_maxy == the record's max_y == last_row).
+            if (j_accept && !(hyst_on && f_scnt < hyst_strong_min)
+                && !(border != 4'd0 &&
+                     (f_minx < {7'd0, border} ||
+                      f_maxx >= width[10:0] - {7'd0, border} ||
+                      f_miny < {7'd0, border} ||
+                      f_maxy >= height[10:0] - {7'd0, border}))) begin
                 rec_valid <= 1'b1;
                 rec_sx <= f_sx; rec_sy <= f_sy;
                 rec_ex <= f_ex; rec_ey <= f_ey;

@@ -32,6 +32,7 @@ module tb_judge;
         .clk(clk), .rst(rst), .en(ce),
         .start(start), .n(n), .xs(xs), .ys(ys),
         .xss(xss), .yss(yss), .xys(xys), .pix_th(pix_th),
+        .mps_2sq(5'd0),  // (h) off: this golden covers the baseline aspect test
         .busy(busy), .done(done), .accept(accept)
     );
 

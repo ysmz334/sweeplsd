@@ -12,6 +12,12 @@
 `ifndef HYST_MIN
 `define HYST_MIN 3
 `endif
+`ifndef BORDER
+`define BORDER 0
+`endif
+`ifndef MPS_2SQ
+`define MPS_2SQ 0
+`endif
 
 module tb_backend;
     localparam integer W = `IMG_W;
@@ -71,6 +77,7 @@ module tb_backend;
         .clk(clk), .rst(rst), .en(ce),
         .width(W[XW-1:0]), .height(H[XW-1:0]), .pix_th(18'd`PIX_TH),
         .hyst_on(`HYST_ON != 0), .hyst_strong_min(18'd`HYST_MIN),
+        .border(4'd`BORDER), .mps_2sq(5'd`MPS_2SQ),
         .ev_empty(ev_empty), .ev_kind(ev_kind), .ev_x(ev_x),
         .ev_strong(ev_strong), .ev_pop(ev_pop),
         .rec_valid(rec_valid),
