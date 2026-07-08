@@ -107,29 +107,41 @@ inline void gradientRow(const std::uint16_t* g0, const std::uint16_t* g1, int w,
 // the bulk of the noise — clamped to [user low, high]. State is O(1) and the
 // update order is the row order, identical in both drivers, so multi-pass and
 // one-pass outputs stay bit-identical.
+//
+// FIXED-POINT (v2c step 3 / FPGA parity): counts are scaled x256 so the
+// per-row decay `v -= v >> 8` (= v * 255/256 floored) keeps sub-unit
+// precision without floats, and the 80th-percentile test avoids a divide by
+// cross-multiplying `cum*5 >= total*4` (exactly 0.8, no rounding). This is
+// what the HLS C model and the RTL histogram both compute bit-for-bit; the
+// change vs the old float form is sub-LSB (an occasional one-bin threshold
+// shift), see hls/DESIGN.md improvement (d).
 struct AdaptiveLowTh {
     static constexpr int kBins = 64, kBinW = 64;  // covers power 0..4095
-    float bins[kBins] = {};
-    float total = 0;
+    static constexpr std::uint32_t kUnit = 256;   // fixed-point +1.0
+    std::uint32_t bins[kBins] = {};
+    std::uint32_t total = 0;
 
     void update(const std::uint16_t* power, int w) {
-        constexpr float decay = 1.0f - 1.0f / 256.0f;
-        for (int b = 0; b < kBins; ++b) bins[b] *= decay;
-        total *= decay;
+        for (int b = 0; b < kBins; ++b) bins[b] -= bins[b] >> 8;
+        total -= total >> 8;
         for (int x = 0; x < w; x += 4) {
             int b = power[x] >> 6;
-            bins[b < kBins ? b : kBins - 1] += 1.0f;
-            total += 1.0f;
+            bins[b < kBins ? b : kBins - 1] += kUnit;
+            total += kUnit;
         }
     }
     int lowTh(int user_low, int high) const {
-        if (total <= 0) return user_low;
-        float want = 0.80f * total, cum = 0;
+        if (total == 0) return user_low;
+        // 80th percentile bin: first b with cumulative count >= 0.8*total,
+        // written as cum*5 >= total*4 (integer, no divide).
+        const std::uint64_t want4 = std::uint64_t(total) * 4;
+        std::uint64_t cum = 0;
         int b = 0;
         for (; b < kBins; ++b) {
             cum += bins[b];
-            if (cum >= want) break;
+            if (cum * 5 >= want4) break;
         }
+        if (b >= kBins) b = kBins - 1;
         int p80 = b * kBinW + kBinW / 2;
         int th = 2 * p80;
         if (th < user_low) th = user_low;

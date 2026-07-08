@@ -114,8 +114,19 @@ if(SWEEPLSD_BUILD_BENCH)
   add_subdirectory(bench)
 endif()
 
+# HLS (FPGA) core + its host-compiled parity testbench — see hls/DESIGN.md.
+option(SWEEPLSD_BUILD_HLS "Build the HLS core's host testbench" OFF)
+# RTL (phase 2) golden-vector tool — see rtl/DESIGN.md.
+option(SWEEPLSD_BUILD_RTL "Build the RTL verification host tools" OFF)
+
 # Tests.
 enable_testing()
+if(SWEEPLSD_BUILD_HLS)
+  add_subdirectory(hls)
+endif()
+if(SWEEPLSD_BUILD_RTL)
+  add_subdirectory(rtl)
+endif()
 add_executable(sweeplsd_tests tests/test_sweeplsd.cpp)
 target_include_directories(sweeplsd_tests PRIVATE src)
 target_link_libraries(sweeplsd_tests PRIVATE sweeplsd)

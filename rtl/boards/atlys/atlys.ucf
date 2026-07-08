@@ -1,0 +1,37 @@
+# Digilent Atlys (Spartan-6 XC6SLX45-3CSG324) — SweepLSD demo constraints.
+# Pin data cross-checked against the Digilent master UCF mirrors
+# (hdl/constraints Atlys HDMI.TX + alexforencich verilog-ethernet fpga.ucf).
+
+CONFIG VCCAUX = 3.3;
+
+# 100 MHz oscillator
+NET "clk100" LOC = "L15" | IOSTANDARD = LVCMOS33;
+NET "clk100" TNM_NET = "tn_clk100";
+TIMESPEC "TS_clk100" = PERIOD "tn_clk100" 10 ns HIGH 50%;
+
+# v2a: the detector core runs on its own 37.5 MHz PLL output (clk_core), so
+# its 26.6 ns period constraint is auto-derived from TS_clk100 — no TNM
+# multicycle groups. (INST-wildcard TNM + FROM:TO was tried and abandoned:
+# ngdbuild silently dropped part of the group — gauss/gradient line-buffer
+# BRAMs, ~300 backend FFs — leaving the monster front-end path constrained at
+# the pixel period. A real clock cannot be mis-grouped.)
+
+# HDMI OUT (J2, via TMDS141 buffer)
+NET "tmds_tx_clk_p" LOC = "B6" | IOSTANDARD = TMDS_33;
+NET "tmds_tx_clk_n" LOC = "A6" | IOSTANDARD = TMDS_33;
+NET "tmds_tx_p<0>"  LOC = "D8" | IOSTANDARD = TMDS_33;   # blue
+NET "tmds_tx_n<0>"  LOC = "C8" | IOSTANDARD = TMDS_33;
+NET "tmds_tx_p<1>"  LOC = "C7" | IOSTANDARD = TMDS_33;   # green
+NET "tmds_tx_n<1>"  LOC = "A7" | IOSTANDARD = TMDS_33;
+NET "tmds_tx_p<2>"  LOC = "B8" | IOSTANDARD = TMDS_33;   # red
+NET "tmds_tx_n<2>"  LOC = "A8" | IOSTANDARD = TMDS_33;
+
+# LEDs
+NET "led<0>" LOC = "U18" | IOSTANDARD = LVCMOS25 | SLEW = QUIETIO | DRIVE = 2;
+NET "led<1>" LOC = "M14" | IOSTANDARD = LVCMOS25 | SLEW = QUIETIO | DRIVE = 2;
+NET "led<2>" LOC = "N14" | IOSTANDARD = LVCMOS25 | SLEW = QUIETIO | DRIVE = 2;
+NET "led<3>" LOC = "L14" | IOSTANDARD = LVCMOS25 | SLEW = QUIETIO | DRIVE = 2;
+NET "led<4>" LOC = "M13" | IOSTANDARD = LVCMOS25 | SLEW = QUIETIO | DRIVE = 2;
+NET "led<5>" LOC = "D4"  | IOSTANDARD = LVCMOS33 | SLEW = QUIETIO | DRIVE = 2;
+NET "led<6>" LOC = "P16" | IOSTANDARD = LVCMOS25 | SLEW = QUIETIO | DRIVE = 2;
+NET "led<7>" LOC = "N12" | IOSTANDARD = LVCMOS33 | SLEW = QUIETIO | DRIVE = 2;

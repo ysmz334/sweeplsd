@@ -75,6 +75,7 @@ std::vector<LineSegment> detectOnePass(const GrayImage& src, const Params& param
     const std::vector<std::uint16_t> zero_row16(w, 0); // 16-bit stand-in (gaussian/power rows)
 
     kernels::AdaptiveLowTh adapt;  // same per-row update order as the multi-pass
+    int th_pending = params.hysteresis_low_th;  // (d) two-row lag; see edge.cpp
 
     Labeler labeler(w, h, params);
     const std::vector<Feature> none_row(w, Feature::None);  // stand-in for rows outside the image
@@ -114,8 +115,11 @@ std::vector<LineSegment> detectOnePass(const GrayImage& src, const Params& param
             int edge_th = params.gradient_power_th;
             if (params.use_hysteresis) {
                 if (params.hysteresis_adaptive) {
+                    // Two-row lag (see edge.cpp): use last row's computed
+                    // threshold, stage this row's for next, then fold row r.
+                    edge_th = th_pending;
+                    th_pending = adapt.lowTh(params.hysteresis_low_th, params.gradient_power_th);
                     adapt.update(prow(r), w);
-                    edge_th = adapt.lowTh(params.hysteresis_low_th, params.gradient_power_th);
                 } else {
                     edge_th = params.hysteresis_low_th;
                 }

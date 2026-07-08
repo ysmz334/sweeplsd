@@ -1,0 +1,58 @@
+# Atlys (Spartan-6 XC6SLX45-3CSG324) — v2b HDMI pass-through (atlys_rx_top).
+# J3 = HDMI IN (unbuffered type A, bank 1), J2 = HDMI OUT. DDC/EDID is jumper
+# routed in hardware (JP6/JP7: J3 DDC -> J2 monitor) — no FPGA DDC pins here.
+# Pin data per the Digilent Atlys reference manual table (see
+# xapp495/README.md).
+
+CONFIG VCCAUX = 3.3;
+
+# 100 MHz oscillator (EDID I2C sampling clock)
+NET "clk100" LOC = "L15" | IOSTANDARD = LVCMOS33;
+NET "clk100" TNM_NET = "tn_clk100";
+TIMESPEC "TS_clk100" = PERIOD "tn_clk100" 10 ns HIGH 50%;
+
+# reset push button
+NET "rstbtn_n" LOC = "T15" | IOSTANDARD = LVCMOS33;
+
+# J3 DDC — the FPGA answers EDID reads here (edid_rom_720p.vhd)
+NET "rx_scl" LOC = "M16" | IOSTANDARD = LVCMOS33;
+NET "rx_sda" LOC = "M18" | IOSTANDARD = LVCMOS33;
+
+# recovered TMDS clock: 74.25 MHz (720p60) with a little margin. (M1 used the
+# XAPP495 100 MHz over-constraint; with the detector core in the pclk domain
+# that is 3.5 ns of fictitious pressure — the core closes at 88.5/91.7 MHz.)
+NET "u_rx/rxclk" TNM_NET = "tn_rxclk";
+TIMESPEC "TS_rxclk" = PERIOD "tn_rxclk" 13.4 ns HIGH 50%;
+
+# HDMI IN (J3): [3]=clk [2]=red(D2) [1]=green(D1) [0]=blue(D0)
+NET "rx_tmds_p<3>" LOC = "H17" | IOSTANDARD = TMDS_33;
+NET "rx_tmds_n<3>" LOC = "H18" | IOSTANDARD = TMDS_33;
+NET "rx_tmds_p<2>" LOC = "J16" | IOSTANDARD = TMDS_33;
+NET "rx_tmds_n<2>" LOC = "J18" | IOSTANDARD = TMDS_33;
+NET "rx_tmds_p<1>" LOC = "L17" | IOSTANDARD = TMDS_33;
+NET "rx_tmds_n<1>" LOC = "L18" | IOSTANDARD = TMDS_33;
+NET "rx_tmds_p<0>" LOC = "K17" | IOSTANDARD = TMDS_33;
+NET "rx_tmds_n<0>" LOC = "K18" | IOSTANDARD = TMDS_33;
+
+# HDMI OUT (J2, via TMDS141 buffer)
+NET "tx_tmds_p<3>" LOC = "B6" | IOSTANDARD = TMDS_33;
+NET "tx_tmds_n<3>" LOC = "A6" | IOSTANDARD = TMDS_33;
+NET "tx_tmds_p<2>" LOC = "B8" | IOSTANDARD = TMDS_33;
+NET "tx_tmds_n<2>" LOC = "A8" | IOSTANDARD = TMDS_33;
+NET "tx_tmds_p<1>" LOC = "C7" | IOSTANDARD = TMDS_33;
+NET "tx_tmds_n<1>" LOC = "A7" | IOSTANDARD = TMDS_33;
+NET "tx_tmds_p<0>" LOC = "D8" | IOSTANDARD = TMDS_33;
+NET "tx_tmds_n<0>" LOC = "C8" | IOSTANDARD = TMDS_33;
+
+# LEDs — all LVCMOS33: bank 1 now carries the J3 TMDS_33 inputs, so its VCCO
+# is 3.3 V and LVCMOS25 LEDs in the same bank are rejected by placement
+# (ERROR:Place:864). dvi_demo.ucf uses LVCMOS33 throughout — proven on
+# hardware.
+NET "led<0>" LOC = "U18" | IOSTANDARD = LVCMOS33 | SLEW = QUIETIO | DRIVE = 2;
+NET "led<1>" LOC = "M14" | IOSTANDARD = LVCMOS33 | SLEW = QUIETIO | DRIVE = 2;
+NET "led<2>" LOC = "N14" | IOSTANDARD = LVCMOS33 | SLEW = QUIETIO | DRIVE = 2;
+NET "led<3>" LOC = "L14" | IOSTANDARD = LVCMOS33 | SLEW = QUIETIO | DRIVE = 2;
+NET "led<4>" LOC = "M13" | IOSTANDARD = LVCMOS33 | SLEW = QUIETIO | DRIVE = 2;
+NET "led<5>" LOC = "D4"  | IOSTANDARD = LVCMOS33 | SLEW = QUIETIO | DRIVE = 2;
+NET "led<6>" LOC = "P16" | IOSTANDARD = LVCMOS33 | SLEW = QUIETIO | DRIVE = 2;
+NET "led<7>" LOC = "N12" | IOSTANDARD = LVCMOS33 | SLEW = QUIETIO | DRIVE = 2;

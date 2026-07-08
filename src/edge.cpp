@@ -19,6 +19,12 @@ EdgeField extractEdges(const GradientField& grad, const Params& params) {
     auto prow = [&](int y) { return (y >= 0 && y < h) ? &p.at(0, y) : zero.data(); };
     const bool hyst = params.use_hysteresis;
     kernels::AdaptiveLowTh adapt;
+    // (d) adaptive low threshold with a TWO-row lag: row y is thresholded with
+    // the histogram of rows < y-1. The extra row (vs a one-row lag) is what
+    // lets the FPGA run its 64-bin percentile scan over a full row instead of
+    // the ~10-cycle inter-row flush gap; the decay is 1/256 per row so the
+    // shift is sub-LSB. `th_pending` carries lowTh(H_{y-1}) to row y+1.
+    int th_pending = params.hysteresis_low_th;
 
     EdgeField out;
     out.edge = Grid<std::uint8_t>(w, h, 0);
@@ -27,8 +33,13 @@ EdgeField extractEdges(const GradientField& grad, const Params& params) {
         int th = params.gradient_power_th;
         if (hyst) {
             if (params.hysteresis_adaptive) {
+                // Two-row lag (see the th_pending comment above): use the
+                // threshold computed one row ago (= lowTh(H_{y-2})), then stage
+                // lowTh(H_{y-1}) for the next row, then fold row y. Bit-identical
+                // in both drivers and to the RTL histogram module.
+                th = th_pending;
+                th_pending = adapt.lowTh(params.hysteresis_low_th, params.gradient_power_th);
                 adapt.update(prow(y), w);
-                th = adapt.lowTh(params.hysteresis_low_th, params.gradient_power_th);
             } else {
                 th = params.hysteresis_low_th;
             }

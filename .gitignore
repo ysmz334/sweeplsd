@@ -7,3 +7,30 @@ build_*/
 .vscode/
 .cache/
 CMakeUserPresets.json
+
+# HLS build artifacts (hls/)
+hls/proj_sweeplsd_hls/
+hls/logs/
+vitis_hls.log
+vitis-run.log
+
+# RTL (phase 2) board build logs, images, and one-off synthesis experiments.
+# ("build/" and "build_*/" above already cover build_rx/ and the synth_fe/be
+# build outputs; these dirs are ad-hoc XST timing probes / demo renders.)
+*.log
+*.ppm
+rtl/boards/atlys/demo_out/
+rtl/boards/atlys/synth_core/
+rtl/boards/atlys/synth_smoke/
+
+# Xilinx XAPP495 DVI reference design (Digilent/Xilinx app-note licensed):
+# needed locally to build the Atlys board, but NOT redistributable in this
+# repo — keep it on disk, never commit it.
+rtl/boards/atlys/xapp495/
+
+# Large golden-vector sets — regenerable with rtl/tools/dump_vectors (see
+# rtl/DESIGN.md). vectors_big/ also dumps raw Waseda image pixels, which are
+# not redistributed here. Only the small self-contained synthetic set
+# (rtl/tb/vectors/, built from dump_vectors' own procedural images) is tracked.
+rtl/tb/vectors_720p/
+rtl/tb/vectors_big/
