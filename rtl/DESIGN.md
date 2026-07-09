@@ -246,8 +246,9 @@ adders ≤ 41 bits.
 **Label-table Σx²/Σy²/Σxy stored in 34 bits (BRAM saving).** The same
 `moment_probe` measurement bounds the per-label second/cross moments at ≤2^32
 over the corpus, so `t_xss/t_yss/t_xys` are declared u34 (4× headroom) instead
-of u41. A 34-bit × 1024-deep array infers **2 BRAM18 each vs 3 for u41 — −3
-BRAM18 total**, freeing block RAM toward a second labelling engine (2-stripe).
+of u41. Measured by XST (xc6slx45-3, `synth_be`): the narrowing drops the
+back-end from **42 → 40 block-RAM sites (RAMB8BWER 15 → 12; RAMB16 unchanged)**
+— **−2 of 116 18-Kb sites, ~36 KiB** freed toward a second labelling engine (2-stripe).
 Only the storage changes: the datapath regs (`q_/c_/a_/s_/f_/j_`, `rec_*`) stay
 u41, so reads zero-extend 34→41 and the accumulate write truncates 41→34
 losslessly (bounded ≤2^32 < 2^34). Bit-exact (FullHD gate IMGP1033 imp 2027 /
