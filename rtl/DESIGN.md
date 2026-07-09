@@ -194,6 +194,25 @@ close a segment → JUDGE) → SCAVENGE at end of row. All state is the phase-1
 memory map: 1024-label SoA table, tag-validated label/feature rows, ping-pong
 interior lists, touched lists + free-list ring (release at `last_row ≤ y−2`).
 
+**GATHER dispatch is parallel-skip (`backend.v`, throughput opt).** The four
+already-labelled neighbours are visited in golden order NE, N, NW, W, but the
+FSM does **not** step a counter through all four slots one cycle each — an
+absent neighbour would waste a cycle. Instead a combinational present-mask
+`gpres = {n_aR,n_aC,n_aL,n_cL}==K_INT` and a priority pick (`grem = gpres &
+~pdone`, `pdone` = neighbours already find-launched) jump straight to the next
+present neighbour; RESOLVE fires when `grem==0`. The find loop
+(`S_GWAIT`/`S_GATH1`), the `label0`/`label1` accumulation and the single-hop
+path-compression are **unchanged** — only the dead cycles between finds are
+removed, so records stay bit-exact (verified incl. the FullHD gate). Per-pixel
+cost drops by `4−k` cycles for `k` present neighbours (largest on the sparse
+thin-line pixels that dominate): measured **18.9 → 16.0 cy/interior on
+IMGP1033 (×1.18)**, cutting the back-end's share of the 1080p30 frame-clock
+budget from ~93 % to ~79 %. This is a **partial** overflow mitigation (corpus
+segment loss ~52 % → ~34 % in the calibrated FIFO-drop co-sim); the throughput
+gap to zero-drop needs stripe parallelism on top (see the FIFO-drop notes).
+The gather bottleneck was found by a state-occupancy histogram (42 % of
+back-end cycles were the serial gi=0..5 walk).
+
 **Judge = one shared sequential MAC.** The exact integer test
 `361·T² ≤ 441·R²` needs 9 wide products (up to 128×128). Rather than the 79
 DSPs the HLS version spends (Artix-7 87 %), phase 2 schedules every product

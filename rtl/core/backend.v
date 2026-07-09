@@ -299,7 +299,8 @@ module backend #(
     reg [12:0] rq_tag_m1, rq_tag_0, rq_tag_p1;
     reg [NLW-1:0] rq_lab_m1, rq_lab_0, rq_lab_p1;
     reg [NLW-1:0] label0, label1;
-    reg [2:0]  gi;
+    reg [2:0]  gi;                    // gather phase: 0 = read x+1 col, 1 = dispatch
+    reg [3:0]  pdone;                 // (gather) neighbours already find-launched
     reg [NLW-1:0] find_id, find_first;
     reg [NLW-1:0] center;
     reg [12:0] c_lrow, c_lx;
@@ -376,6 +377,23 @@ module backend #(
 
     wire touches_end = ((n_aL | n_aC | n_aR | n_cL | n_cR | n_bL | n_bC | n_bR)
                         & 2'd2) != 2'd0;
+
+    // (gather) parallel neighbour dispatch. The four already-labelled neighbours
+    // in golden order NE, N, NW, W (MSB..LSB); the serial gi=0..5 walk is
+    // replaced by a priority pick over the ones still to process, so absent
+    // neighbours cost no cycles. The find launched for the picked neighbour, and
+    // the label0/label1 accumulation + path-compression in S_GATH1, are
+    // unchanged — only the dead cycles between finds are removed (records stay
+    // bit-exact; see rtl/DESIGN.md).
+    wire [3:0] gpres = {n_aR == K_INT, n_aC == K_INT, n_aL == K_INT, n_cL == K_INT};
+    wire [3:0] grem  = gpres & ~pdone;              // present & not yet launched
+    wire [3:0] gselbit = grem[3] ? 4'b1000 :        // NE first
+                         grem[2] ? 4'b0100 :        // then N
+                         grem[1] ? 4'b0010 :        // then NW
+                                   4'b0001;         // then W
+    wire [NLW-1:0] gcand = grem[3] ? rq_lab_p1 :
+                           grem[2] ? rq_lab_0  :
+                           grem[1] ? rq_lab_m1 : w_sav;
 
     // merge combine (a_* = l0's entry, q_* = l1's entry)
     wire keep0 = ($signed(a_lrow) > $signed(q_lrow)) ||
@@ -659,6 +677,7 @@ module backend #(
                 end
                 first_pix <= 1'b0;
                 gi <= 3'd0;
+                pdone <= 4'd0;
                 label0 <= 10'd0;
                 label1 <= 10'd0;
                 state <= S_GATH0;
@@ -676,9 +695,9 @@ module backend #(
                         f_ra <= pxn - 11'd1;   // column; fq/rowq then hold it
                         row_ra <= pxn - 11'd1; // untouched through the resolve
                     end
-                    gi <= 3'd1;         // evaluate NE next cycle (regs settle)
-                end else if (gi == 3'd5) begin
-                    // gather finished -> resolve
+                    gi <= 3'd1;         // dispatch next cycle (regs settle)
+                end else if (grem == 4'd0) begin
+                    // all present neighbours processed -> resolve
                     if (label0 == 10'd0) begin
                         if (fl_count == 11'd0) begin
                             // label pool exhausted (pathological density):
@@ -707,22 +726,13 @@ module backend #(
                         state <= S_MRDA;
                     end
                 end else begin
-                    // neighbour index gi-1 in golden order NE, N, NW, W
-                    if ((gi == 3'd1 && n_aR == K_INT) ||
-                        (gi == 3'd2 && n_aC == K_INT) ||
-                        (gi == 3'd3 && n_aL == K_INT) ||
-                        (gi == 3'd4 && n_cL == K_INT)) begin
-                        find_id <= (gi == 3'd1) ? rq_lab_p1 :
-                                   (gi == 3'd2) ? rq_lab_0 :
-                                   (gi == 3'd3) ? rq_lab_m1 : w_sav;
-                        l_ra <= (gi == 3'd1) ? rq_lab_p1 :
-                                (gi == 3'd2) ? rq_lab_0 :
-                                (gi == 3'd3) ? rq_lab_m1 : w_sav;
-                        find_first <= 10'd0;
-                        state <= S_GWAIT;
-                    end else begin
-                        gi <= gi + 3'd1;
-                    end
+                    // launch the find for the highest-priority present neighbour
+                    // still to process; mark it done so the next dispatch skips it
+                    find_id <= gcand;
+                    l_ra <= gcand;
+                    find_first <= 10'd0;
+                    pdone <= pdone | gselbit;
+                    state <= S_GWAIT;
                 end
             end
 
@@ -739,7 +749,6 @@ module backend #(
                         label0 <= find_id;
                     else if (find_id != label0 && label1 == 10'd0)
                         label1 <= find_id;
-                    gi <= gi + 3'd1;
                     state <= S_GATH0;
                 end else begin
                     if (find_first == 10'd0) find_first <= find_id;
