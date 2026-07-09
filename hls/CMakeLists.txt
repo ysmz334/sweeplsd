@@ -21,3 +21,57 @@ if(NOT MSVC)
 endif()
 
 add_test(NAME sweeplsd_hls_tb COMMAND sweeplsd_hls_tb)
+
+# FIFO-drop study tooling (host-only; not synthesised). density_probe = Step 0
+# (per-image event-density tabulation from the front-end event stream).
+add_executable(sweeplsd_density
+  src/frontend.cpp
+  src/backend.cpp
+  tools/density_probe.cpp
+)
+target_include_directories(sweeplsd_density PRIVATE
+  src
+  compat
+  host
+  ${CMAKE_CURRENT_SOURCE_DIR}/../src
+)
+target_link_libraries(sweeplsd_density PRIVATE sweeplsd sweeplsd_io)
+if(NOT MSVC)
+  target_compile_options(sweeplsd_density PRIVATE -Wno-unknown-pragmas)
+endif()
+
+# Step 1: producer -> FIFO -> back-end co-sim; per-image dropped events + lost
+# segments under the live event-FIFO drop policy.
+add_executable(sweeplsd_dropsim
+  src/frontend.cpp
+  src/backend.cpp
+  tools/fifo_dropsim.cpp
+)
+target_include_directories(sweeplsd_dropsim PRIVATE
+  src
+  compat
+  host
+  ${CMAKE_CURRENT_SOURCE_DIR}/../src
+)
+target_link_libraries(sweeplsd_dropsim PRIVATE sweeplsd sweeplsd_io)
+if(NOT MSVC)
+  target_compile_options(sweeplsd_dropsim PRIVATE -Wno-unknown-pragmas)
+endif()
+
+# Per-image PNG visualiser: buffer-occupancy + dropped-pixel map, and
+# survived/lost segment overlay.
+add_executable(sweeplsd_dropviz
+  src/frontend.cpp
+  src/backend.cpp
+  tools/fifo_dropviz.cpp
+)
+target_include_directories(sweeplsd_dropviz PRIVATE
+  src
+  compat
+  host
+  ${CMAKE_CURRENT_SOURCE_DIR}/../src
+)
+target_link_libraries(sweeplsd_dropviz PRIVATE sweeplsd sweeplsd_io)
+if(NOT MSVC)
+  target_compile_options(sweeplsd_dropviz PRIVATE -Wno-unknown-pragmas)
+endif()

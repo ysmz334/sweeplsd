@@ -8,6 +8,9 @@ build_*/
 .cache/
 CMakeUserPresets.json
 
+# FIFO-drop study visualiser output (large, regenerable via hls/tools/fifo_dropviz)
+dropviz_out/
+
 # HLS build artifacts (hls/)
 hls/proj_sweeplsd_hls/
 hls/logs/
