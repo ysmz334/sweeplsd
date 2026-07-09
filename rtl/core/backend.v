@@ -49,7 +49,7 @@ module backend #(
     input  wire [1:0]      ev_kind,
     input  wire [XW-1:0]   ev_x,
     input  wire            ev_strong,        // (d) strong bit of the data event
-    output reg             ev_pop,
+    output wire            ev_pop,
 
     // accepted-segment record output (always-ready stream)
     output reg             rec_valid,
@@ -339,7 +339,7 @@ module backend #(
     localparam [5:0]
         S_INIT   = 6'd0,
         S_POP    = 6'd1,
-        S_EV     = 6'd2,
+        S_EV     = 6'd2,    // retired: POP+EV fused into S_POP (FWFT front)
         S_ROW0   = 6'd3,
         S_RNEXT  = 6'd4,
         S_RW     = 6'd5,
@@ -372,10 +372,16 @@ module backend #(
 
     reg [5:0] state;
 
-    // event latched at pop time (the FIFO may advance right after)
-    reg [1:0]  evk;
-    reg [10:0] evx;
-    reg        evs;                    // (d) strong bit of the popped event
+    // POP+EV fused ingest: the event_fifo is first-word-fall-through, so the
+    // front (ev_kind/ev_x/ev_strong) is combinationally valid whenever
+    // !ev_empty. The event is therefore consumed AND applied in the single
+    // S_POP state (no separate latch-then-use S_EV cycle). ev_pop is a
+    // COMBINATIONAL output so the FIFO advances the same cycle we apply the
+    // event; a registered pop would re-present the same front next cycle and
+    // double-apply it. The consumer (event_fifo / tb) gates the pop with `en`,
+    // and the whole FSM only advances on `en`, so exactly one event is
+    // consumed per en-cycle spent in S_POP.
+    assign ev_pop = (state == S_POP) && !ev_empty;
 
     wire [12:0] py_m1 = py - 13'd1;
     wire [12:0] py_p1 = py + 13'd1;
@@ -467,7 +473,6 @@ module backend #(
 
     always @(posedge clk) begin
         if (en) begin
-        ev_pop <= 1'b0;
         j_start <= 1'b0;
         rec_valid <= 1'b0;
         conn_we <= 1'b0;
@@ -508,37 +513,30 @@ module backend #(
                 end
             end
 
-            // ---- event ingestion ----
+            // ---- event ingestion (POP+EV fused; see the ev_pop assign) ----
+            // The FWFT front is applied directly this cycle; state stays S_POP
+            // for data events so the next event is consumed on the next en edge.
             S_POP: if (!ev_empty) begin
-                ev_pop <= 1'b1;
-                evk <= ev_kind;         // latch: the FIFO advances on pop
-                evx <= ev_x[10:0];
-                evs <= ev_strong;
-                state <= S_EV;
-            end
-
-            S_EV: begin
-                state <= S_POP;
-                case (evk)
+                case (ev_kind)
                     K_INT, K_END: begin
                         ftag_we <= 1'b1;
                         ftag_wb <= (ing_b == 2'd0) ? 3'b001 :
                                    (ing_b == 2'd1) ? 3'b010 : 3'b100;
-                        ftag_wa <= evx;
+                        ftag_wa <= ev_x[10:0];
                         ftag_wd <= ingest_y;
                         case (ing_b)
-                            2'd0: f_kind0[evx] <= evk;
-                            2'd1: f_kind1[evx] <= evk;
-                            default: f_kind2[evx] <= evk;
+                            2'd0: f_kind0[ev_x[10:0]] <= ev_kind;
+                            2'd1: f_kind1[ev_x[10:0]] <= ev_kind;
+                            default: f_kind2[ev_x[10:0]] <= ev_kind;
                         endcase
-                        if (evk == K_INT) begin
+                        if (ev_kind == K_INT) begin
                             if (ingest_y[0]) begin
-                                xl1[xcnt1[10:0]] <= evx;
-                                xs1[xcnt1[10:0]] <= evs;
+                                xl1[xcnt1[10:0]] <= ev_x[10:0];
+                                xs1[xcnt1[10:0]] <= ev_strong;
                                 xcnt1 <= xcnt1 + 12'd1;
                             end else begin
-                                xl0[xcnt0[10:0]] <= evx;
-                                xs0[xcnt0[10:0]] <= evs;
+                                xl0[xcnt0[10:0]] <= ev_x[10:0];
+                                xs0[xcnt0[10:0]] <= ev_strong;
                                 xcnt0 <= xcnt0 + 12'd1;
                             end
                         end
@@ -731,6 +729,28 @@ module backend #(
                         l_ra <= label0;
                         state <= S_MRDA;
                     end
+                end else if (gselbit == 4'b0001 &&
+                             prev_x_v && prev_x == px - 11'd1) begin
+                    // (W fast-path) The W neighbour's label is the carry
+                    // register w_sav, and w_sav is provably a ROOT: `center` is
+                    // only ever set from a find result / fresh label / merge
+                    // survivor (all roots) and `w_sav <= center`; single-hop
+                    // path-compression never rewrites conn[root], and no merge
+                    // runs between the previous pixel's accumulate and this
+                    // gather. So find(w_sav) would return w_sav immediately.
+                    // Fold w_sav into label0/label1 exactly as S_GATH1's root
+                    // branch does (no compression write: find_first would be 0),
+                    // skipping the 2-cycle S_GWAIT/S_GATH1 read. Gated on the
+                    // run-continuation (prev_x == px-1) so w_sav definitely
+                    // belongs to px-1 even in the label-exhaustion skip path,
+                    // where prev_x is intentionally left stale (gcand == w_sav
+                    // whenever gselbit selects W). Records stay bit-exact.
+                    if (label0 == 10'd0)
+                        label0 <= w_sav;
+                    else if (w_sav != label0 && label1 == 10'd0)
+                        label1 <= w_sav;
+                    pdone <= pdone | 4'b0001;
+                    state <= S_GATH0;
                 end else begin
                     // launch the find for the highest-priority present neighbour
                     // still to process; mark it done so the next dispatch skips it
@@ -1083,7 +1103,6 @@ module backend #(
         if (rst) begin
             state <= S_INIT;
             init_a <= 12'd0;
-            ev_pop <= 1'b0;
             j_start <= 1'b0;
             jf_inflight <= 1'b0;
             rec_valid <= 1'b0;

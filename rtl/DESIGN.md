@@ -213,6 +213,43 @@ gap to zero-drop needs stripe parallelism on top (see the FIFO-drop notes).
 The gather bottleneck was found by a state-occupancy histogram (42 % of
 back-end cycles were the serial gi=0..5 walk).
 
+**GATHER W-continuation fast-path (`backend.v`, throughput opt).** Re-running
+the state-occupancy histogram *after* the parallel-skip showed GATHER was still
+the largest single group (588 k / 1.83 M cy ≈ 32 %): the remaining cost is a
+2-cycle floor per pixel (the `gi=0` right-neighbour setup + the `grem==0`
+RESOLVE) plus **3 cycles per present neighbour** (dispatch + `S_GWAIT`/`S_GATH1`,
+the conn-BRAM `addr@T→data@T+2` find latency), at ~0.94 present neighbours/pixel.
+The W (left) neighbour's label is the carry register `w_sav`, and `w_sav` is
+provably a **root**: `center` is only ever loaded from a find result / fresh
+label / merge survivor (all roots) and `w_sav <= center`; single-hop
+path-compression never rewrites `conn[root]`, and no merge runs between the
+previous pixel's ACCUMULATE and this GATHER. So `find(w_sav)` always returns
+immediately — the FSM folds `w_sav` into `label0`/`label1` directly (exactly as
+`S_GATH1`'s root branch, no compression write) and skips the 2-cycle read. Gated
+on the run-continuation `prev_x == px−1` so `w_sav` is guaranteed to belong to
+`px−1` even in the label-exhaustion skip path (where `prev_x` is left stale).
+Measured **−82 k cy** (40,995 W-finds folded × 2 cy): GATHER 4.81 → 4.14
+cy/interior; bit-exact (FullHD gate imp 2027 / base 2106, CE_DIV 1 & 2,
+tb_sweep_core full chain).
+
+**INGEST is one state, not two (`backend.v`, throughput opt).** The `event_fifo`
+is first-word-fall-through (`front = mem[rp]`, combinational), so the front event
+is valid the same cycle it is `!empty`. The old `S_POP` (latch) → `S_EV` (apply)
+split was pure redundancy; the two are fused into a single `S_POP` that applies
+the FWFT front directly. For this to advance one event per cycle, `ev_pop` is
+made a **combinational** output (`state==S_POP && !ev_empty`) so the FIFO
+advances the same edge the event is applied — a registered pop would re-present
+the same front next cycle and double-apply it; the consumer gates the pop with
+`en` and the FSM only steps on `en`, so exactly one event is consumed per
+en-cycle in `S_POP`. Every event (interior + endpoint + row markers) now costs 1
+cycle instead of 2: INGEST **340 k → 170 k cy** (−9.3 % of the back-end).
+Bit-exact across the same gate.
+
+**Combined (INGEST fuse + W fast-path): IMGP1033_imp back-end 1.83 M → 1.58 M cy
+(−13.8 %), 14.96 → 12.90 cy/interior, 1080p30 frame-budget share ~74 % → ~64 %.**
+GATHER is still #1 (506 k, 32 %); FETCH is now #2 (371 k, 23.5 %, the short-path
+`addr@T→data@T+2` floor). Next candidate: fold the `gi=0` GATHER setup cycle.
+
 **Judge = one shared sequential MAC.** The exact integer test
 `361·T² ≤ 441·R²` needs 9 wide products. Rather than the 79
 DSPs the HLS version spends (Artix-7 87 %), phase 2 schedules every product
