@@ -35,6 +35,7 @@ module fe_chain #(
     input  wire            hyst_on,      // (d) hysteresis
     input  wire            hyst_adaptive,
     input  wire [15:0]     hyst_low,
+    input  wire [3:0]      edge_border, // (border edge exclusion; 0 = off)
     input  wire [7:0]      px,          // src(X, Y); read when in-image
 
     output wire            ev_valid,
@@ -91,6 +92,7 @@ module fe_chain #(
         .X(Xd2), .Y(Yd2), .x_next(xnd2),
         .width(width), .height(height), .power_th(power_th), .strict(strict),
         .hyst_on(hyst_on), .hyst_adaptive(hyst_adaptive), .hyst_low(hyst_low),
+        .edge_border(edge_border),
         .i_valid(d_v), .i_power(d_p), .i_dir(d_d),
         .o_valid(e_v), .o_x(e_x), .o_y(e_y), .o_e(e_e), .o_strong(e_strong));
 

@@ -232,7 +232,7 @@ rows:
 // low threshold IS power_th and the strong bit is unused.
 void hlsEdge(hls::stream<PowerDir>& in, hls::stream<std::uint8_t>& out,
              int width, int height, int power_th, bool strict,
-             bool hyst_on, bool hyst_adaptive, int hyst_low) {
+             bool hyst_on, bool hyst_adaptive, int hyst_low, int edge_border) {
     static std::uint16_t lpa[kMaxWidth];  // power row y-2 (= row r-1)
     static std::uint16_t lpc[kMaxWidth];  // power row y-1 (= row r)
     static std::uint8_t ldir[kMaxWidth];  // dir   row y-1 (= row r)
@@ -309,8 +309,18 @@ rows:
                 const bool isV = dir_d == 1;
                 const int Pm = isV ? int(pc_m) : int(pa_d);
                 const int Pp = isV ? int(pc_right) : int(pb_d);
-                const std::uint8_t edge =
+                std::uint8_t edge =
                     std::uint8_t((c >= low_th) & (c >= Pm + s) & (c >= Pp));
+                // Border edge exclusion (Params::edge_border_margin): the outer
+                // ring is not a valid edge (see kernels::zeroEdgeBorderRow).
+                // Zero only the edge bit; the strong bit is internal and never
+                // emitted for a non-edge pixel, so the endpoint stage sees no
+                // feature here. Output position is (r = y-1, xc = x-1).
+                const int r = y - 1, xc = x - 1;
+                if (edge_border > 0 &&
+                    (r < edge_border || r >= height - edge_border ||
+                     xc < edge_border || xc >= width - edge_border))
+                    edge = 0;
                 const std::uint8_t strong = std::uint8_t(c >= power_th);
                 out.write(std::uint8_t(edge | (strong << 1)));
             }
@@ -416,7 +426,7 @@ rows:
 
 void sweeplsdFrontend(hls::stream<std::uint8_t>& src, hls::stream<Event>& events,
                       int width, int height, int power_th, bool strict,
-                      const HystCfg& hyst) {
+                      const HystCfg& hyst, int edge_border) {
 #pragma HLS DATAFLOW
     static hls::stream<std::uint16_t> gauss_s;
     static hls::stream<PowerDir> grad_s;
@@ -430,7 +440,7 @@ void sweeplsdFrontend(hls::stream<std::uint8_t>& src, hls::stream<Event>& events
     hlsGaussian(src, gauss_s, width, height);
     hlsGradient(gauss_s, grad_s, width, height);
     hlsEdge(grad_s, edge_s, width, height, power_th, strict, hyst.on, hyst.adaptive,
-            hyst.low);
+            hyst.low, edge_border);
     hlsFeature(edge_s, feat_s, width, height);
     hlsEvents(feat_s, events, width, height);
 }

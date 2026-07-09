@@ -188,6 +188,26 @@ inline void edgeRow(const std::uint16_t* pa, const std::uint16_t* pc, const std:
     if (w > 1) border(w - 1);
 }
 
+// Border edge exclusion (Params::edge_border_margin; thesis / ref main.cpp).
+// Force edge = 0 within `margin` pixels of any frame side, applied to a freshly
+// produced edge row `out` at image row `y` of a `w`x`h` frame. Top/bottom border
+// rows are cleared whole; interior rows lose only their first/last `margin`
+// columns. Called by every driver right after edgeRow so the spurious
+// frame-tracing ring (the gaussian zero-border / 2x2-gradient step) never
+// reaches the endpoint stage. Removing the edge — rather than keeping the
+// feature and skipping its labelling — is what keeps the RTL's
+// Interior => labelled invariant intact.
+inline void zeroEdgeBorderRow(std::uint8_t* __restrict out, int w, int y, int h, int margin) {
+    if (margin <= 0 || w <= 0) return;
+    if (y < margin || y >= h - margin) {
+        std::memset(out, 0, std::size_t(w));
+        return;
+    }
+    const int left = margin < w ? margin : w;
+    for (int x = 0; x < left; ++x) out[x] = 0;
+    for (int x = (w - margin > 0 ? w - margin : 0); x < w; ++x) out[x] = 0;
+}
+
 // Sub-pixel NMS offset (improvement c). For each SURVIVING edge pixel, fit a
 // parabola through the three power samples along the NMS axis and store the
 // vertex offset in 1/16 px units (int8, clamped to ±8 = ±0.5 px). The sweep is

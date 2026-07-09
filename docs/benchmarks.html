@@ -27,8 +27,8 @@ GCC (MinGW-w64) <code>-O3 -mavx2</code>; LSD is the canonical implementation
 <tr><td>EDLines (ED_Lib)</td><td>43.0 ms</td><td>2.5×</td><td>O(pixels)</td></tr>
 <tr><td>LSD</td><td>247 ms</td><td>14×</td><td>O(pixels)</td></tr>
 </tbody></table>
-<p>Typical segment counts on a rich urban photo: SweepLSD improved 3108, LSD 2938,
-EDLines 2780 — the speed does not come from detecting less.</p>
+<p>Typical segment counts on a rich urban photo (IMGP0942): SweepLSD baseline 3034,
+improved 2938, LSD 2938, EDLines 2780 — the speed does not come from detecting less.</p>
 
 <h2>2. Where the time goes</h2>
 <p>Per-stage profile (<code>sweeplsd_profile</code>, median of 9 runs, one Full-HD photo,

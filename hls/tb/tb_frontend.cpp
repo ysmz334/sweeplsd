@@ -189,7 +189,8 @@ static void testImage(const char* name, const GrayImage& src, const Params& para
             grad_s2.write(H::PowerDir{pow_hw.at(x, y), dir_hw.at(x, y)});
     hls::stream<std::uint8_t> edge_s;
     H::hlsEdge(grad_s2, edge_s, w, h, params.gradient_power_th, params.nms_strict_tiebreak,
-               params.use_hysteresis, params.hysteresis_adaptive, params.hysteresis_low_th);
+               params.use_hysteresis, params.hysteresis_adaptive, params.hysteresis_low_th,
+               params.edge_border_margin);
     Grid<std::uint8_t> edge_hw = pullGrid(edge_s, w, h);   // {strong<<1 | edge}
     Grid<std::uint8_t> edge_bit(w, h);
     for (int y = 0; y < h; ++y)
@@ -229,7 +230,7 @@ static void testImage(const char* name, const GrayImage& src, const Params& para
     const H::HystCfg hyst{params.use_hysteresis, params.hysteresis_adaptive,
                           params.hysteresis_low_th, params.hysteresis_strong_min};
     H::sweeplsdFrontend(src_s2, ev_s, w, h, params.gradient_power_th,
-                        params.nms_strict_tiebreak, hyst);
+                        params.nms_strict_tiebreak, hyst, params.edge_border_margin);
     Grid<Feature> feat_ev = featureFromEvents(ev_s, w, h);
     compareGrids("events->feature", name,
                  *reinterpret_cast<const Grid<std::uint8_t>*>(&feat_ev),

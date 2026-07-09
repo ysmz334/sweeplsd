@@ -27,15 +27,20 @@ and was retired to a clearly-labelled fallback.</p>
 
 <h2>2. F-max under noise</h2>
 <table><thead><tr><th>noise σ</th><th>SweepLSD improved</th><th>SweepLSD baseline</th><th>LSD</th><th>EDLines (ED_Lib)</th></tr></thead><tbody>
-<tr><td>0 (clean)</td><td class="best">0.966</td><td>0.911</td><td>0.923</td><td>0.953</td></tr>
-<tr><td>5</td><td class="best">0.963</td><td>0.833</td><td>0.926</td><td>0.954</td></tr>
-<tr><td>10</td><td>0.949</td><td>0.471</td><td>0.800</td><td class="best">0.954</td></tr>
-<tr><td>20</td><td>0.907</td><td>0.830</td><td>0.507</td><td class="best">0.961</td></tr>
+<tr><td>0 (clean)</td><td class="best">0.966</td><td>0.960</td><td>0.923</td><td>0.953</td></tr>
+<tr><td>5</td><td class="best">0.963</td><td>0.956</td><td>0.926</td><td>0.954</td></tr>
+<tr><td>10</td><td>0.949</td><td>0.943</td><td>0.800</td><td class="best">0.954</td></tr>
+<tr><td>20</td><td>0.907</td><td>0.892</td><td>0.507</td><td class="best">0.961</td></tr>
 </tbody></table>
 <p>Reading: <b>SweepLSD improved leads on clean–low-noise images</b>; <b>ED_Lib EDLines is
 the most noise-stable</b> (essentially flat to σ20); LSD degrades fastest under heavy noise.
-The improvements matter — compare the baseline column (the faithful 2014 reproduction) with
-the improved one.</p>
+The <b>faithful 2014 baseline now tracks the improved column closely on F-max</b>: it used to
+sit far below (0.47 at σ10) because a 2×2-gradient frame ring manufactured a full image
+border of false positives that crushed its precision. Excluding the outer 3&nbsp;px from the
+edge test (a fidelity fix — the original reproduction zeroes a comparable border, and the
+improved config already dropped these via its frame-hugging margin) removes that penalty. What
+the improvements still buy on top of the repaired baseline is <i>geometric</i> accuracy (§3)
+and curve rejection (§4), not raw F-max.</p>
 
 <div class="gallery">
 <figure><img src="assets/eval/eval_gt.png"><figcaption>ground truth (σ10 scene)</figcaption></figure>
@@ -99,5 +104,8 @@ LSD at configure time). Genuine-EDLines rows are produced by
 
 <footer>All numbers regenerated 2026-07 from this repository's benchmark harness
 (upstream LSD 1.6 fetched at configure time; results match the development workspace's
-vendored copy exactly).</footer>
+vendored copy exactly). Re-verified 2026-07 after the outer-3&nbsp;px edge-exclusion
+fidelity fix: the improved, LSD and EDLines columns are unchanged; only the faithful
+baseline's F-max rises, as the fix removes the frame ring that had been depressing its
+precision (−4.3&nbsp;% segments on the Full-HD corpus, ~0&nbsp;% on the improved config).</footer>
 </div></body></html>

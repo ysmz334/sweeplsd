@@ -128,6 +128,7 @@ std::vector<LineSegment> detectOnePass(const GrayImage& src, const Params& param
             std::uint8_t* er = edgeR.mutableRow(r);
             kernels::edgeRow(prow(r - 1), prow(r), prow(r + 1), dr, w, edge_th,
                              params.nms_strict_tiebreak, er);
+            kernels::zeroEdgeBorderRow(er, w, r, h, params.edge_border_margin);
             if (params.subpixel_nms)
                 kernels::nmsSubpixelRow(prow(r - 1), prow(r), prow(r + 1), dr, er, w,
                                         deltaR.mutableRow(r));

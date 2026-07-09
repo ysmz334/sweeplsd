@@ -28,6 +28,7 @@ module stage_edge #(
     input  wire            hyst_on,     // (d) hysteresis: NMS uses the LOW threshold
     input  wire            hyst_adaptive,
     input  wire [15:0]     hyst_low,    // fixed low threshold / adaptive clamp-low
+    input  wire [3:0]      edge_border, // outer ring not a valid edge (0 = off)
 
     input  wire            i_valid,     // gradient sample (X-3, Y-3) valid
     input  wire [15:0]     i_power,
@@ -103,11 +104,24 @@ module stage_edge #(
     wire ge_pm = strict ? (pc_c > Pm) : (pc_c >= Pm);
     wire e_bit = (pc_c >= low_th) && ge_pm && (pc_c >= Pp);
 
+    // Border edge exclusion (Params::edge_border_margin; kernels::zeroEdgeBorderRow):
+    // the outer ring is not a valid edge. border_zone is a pure function of the
+    // OUTPUT position (ox, oy) and width/height — it depends on none of the NMS
+    // datapath, so it is ready long before e_bit and only adds a single AND at
+    // the output (it must NOT go in series inside e_bit; see the strict-adder
+    // timing note above). Zeroing the edge here (not later) is what makes the
+    // downstream 5x5 feature window of the pixels JUST inside the border see the
+    // ring cells as zero — matching the software bit-for-bit.
+    wire [XW-1:0] eb = {{(XW-4){1'b0}}, edge_border};
+    wire border_zone = (edge_border != 4'd0) &&
+                       ((ox < eb) || (ox >= width - eb) ||
+                        (oy < eb) || (oy >= height - eb));
+
     // position-only, not en-gated (see stage_gauss.v)
     assign o_valid = (X >= 4) && (Y >= 4) && (ox < width) && (oy < height);
     assign o_x = ox;
     assign o_y = oy;
-    assign o_e = e_bit;
+    assign o_e = e_bit && !border_zone;
     assign o_strong = (pc_c >= power_th);
 
     always @(posedge clk) begin

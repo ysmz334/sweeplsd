@@ -15,7 +15,7 @@ with an integer-only streaming core.</p>
 <a href="evaluation.html">Quality</a> <a href="vp_evaluation.html">Vanishing points</a> <a href="https://github.com/ysmz334/sweeplsd">Repository</a></nav>
 
 <img class="wide" src="assets/hero_segments.png" alt="SweepLSD segments on a Full-HD photo">
-<p class="sub" style="margin-top:4px">Full-HD photo, 3108 segments in ~17 ms (one detector sweep, single thread).</p>
+<p class="sub" style="margin-top:4px">Full-HD photo, 3034 segments in ~17 ms (one detector sweep, single thread).</p>
 
 <div class="key"><b>The idea.</b> Most line segment detectors hold the whole image (and several
 full-size intermediates) in memory and revisit pixels many times. SweepLSD instead treats the
@@ -79,7 +79,7 @@ points):</p>
 <tr><td>streaming hysteresis</td><td style="text-align:left">low extraction threshold + per-label strong-pixel requirement; the low threshold adapts to the image noise floor (O(1) state)</td><td style="text-align:left">recall ↑ on clean images without flooding noisy ones</td></tr>
 <tr><td>endpoints from projection extremes</td><td style="text-align:left">bounding-box corners projected on the fitted axis</td><td style="text-align:left">robust when a label has &gt;2 endpoint contacts</td></tr>
 <tr><td>curve rejection</td><td style="text-align:left">absolute bound on the perpendicular RMS spread</td><td style="text-align:left">circles/arcs rejected by design (see the isotropy page)</td></tr>
-<tr><td>border margin</td><td style="text-align:left">drop segments hugging the image frame</td><td style="text-align:left">removes a 2×2-gradient boundary artifact</td></tr>
+<tr><td>border margin</td><td style="text-align:left">drop segments hugging the image frame</td><td style="text-align:left">belt-and-suspenders on top of the baseline's outer-3&nbsp;px edge exclusion (which already zeroes the 2×2-gradient border ring)</td></tr>
 <tr><td>half-pixel lattice shift</td><td style="text-align:left">the 2×2 gradient lives on pixel <i>corners</i>; output is shifted +0.5 px (canonical LSD applies the same correction)</td><td style="text-align:left">systematic −0.5 px bias → 0; lateral error 0.92→0.12 px</td></tr>
 </tbody></table>
 <p>All improvements preserve the streaming / O(width) property; when every flag is off the

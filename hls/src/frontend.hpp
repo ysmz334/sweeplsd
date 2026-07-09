@@ -34,7 +34,7 @@ void hlsGradient(hls::stream<std::uint16_t>& in, hls::stream<PowerDir>& out,
 // emitted strong bit tests power_th; output packs {strong<<1 | edge}.
 void hlsEdge(hls::stream<PowerDir>& in, hls::stream<std::uint8_t>& out,
              int width, int height, int power_th, bool strict,
-             bool hyst_on, bool hyst_adaptive, int hyst_low);
+             bool hyst_on, bool hyst_adaptive, int hyst_low, int edge_border = 3);
 
 // Stage 2: 5x5 endpoint-candidate classification -> bits[1:0] = 0 none /
 // 1 interior / 2 endpoint, bit2 = strong (hysteresis).
@@ -49,6 +49,6 @@ void hlsEvents(hls::stream<std::uint8_t>& in, hls::stream<Event>& out,
 // Top level: the four stages plus the event compressor as one dataflow region.
 void sweeplsdFrontend(hls::stream<std::uint8_t>& src, hls::stream<Event>& events,
                       int width, int height, int power_th, bool strict,
-                      const HystCfg& hyst);
+                      const HystCfg& hyst, int edge_border = 3);
 
 }  // namespace sweeplsd_hls

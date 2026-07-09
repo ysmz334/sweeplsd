@@ -87,6 +87,14 @@ export the manifests with <code>tools/yud_export.py</code> (York Urban) /
 decomposition were run with the same estimator mathematics; the recommended configuration
 is <code>sweeplsd_manhattan</code>.</div>
 
+<div class="note"><b>Re-verified 2026-07.</b> After the outer-3&nbsp;px edge-exclusion fidelity
+fix, the downstream vanishing-point numbers are unchanged within run-to-run noise: under the
+fixed common estimator SweepLSD improved measures 1.02° (York Urban) / 12.9° (NYU) median
+error vs the 1.04° / 12.7° tabled above — a ≤0.2° shift, well inside the estimator's own
+scatter. The fix drops the faithful <i>baseline</i>'s spurious frame ring (−4.3&nbsp;% segments
+on the Full-HD corpus) but barely touches the improved config (≈0&nbsp;%), which already
+discarded frame-hugging segments; every ranking and takeaway on this page therefore stands.</div>
+
 <footer>Datasets: York Urban Database (Denis, Elder &amp; Estrada 2008) and NYU-VP
 (Kluger et al. 2020, from NYU Depth v2) — please obtain them from their official sources;
 their images and annotations are not included in this repository.</footer>

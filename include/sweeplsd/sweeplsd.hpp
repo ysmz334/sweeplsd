@@ -54,6 +54,17 @@ struct Params {
     int pixel_num_th = 15;
     double aspect_th = 0.05;       // judgment criterion 4: ev_min/ev_max bound
     int max_segments = 100000;
+    // Border edge exclusion (thesis / ref main.cpp): the outer ring of pixels is
+    // NOT a valid edge. The gaussian zeroes the outer 2px, so the 2x2 gradient
+    // sees a 0->content step there and manufactures a spurious edge ring that
+    // traces the whole frame. The original zeroed the endpoint/feature map in
+    // the border columns for exactly this reason; here we do it one stage
+    // earlier and symmetrically — force edge = 0 within this many pixels of any
+    // frame side (top/bottom/left/right). Applied to the edge row in EVERY
+    // driver (multi-pass, one-pass, HLS, RTL) so all stay bit-exact, and it is
+    // RTL-safe: removing the edge (not skipping the labelling of a still-present
+    // feature) keeps the Interior => labelled invariant intact. 0 = off.
+    int edge_border_margin = 3;
 
     // ---- previously added improvements ------------------------------------
     bool weight_by_gradient = false;  // improvement 3: gradient-weighted moments

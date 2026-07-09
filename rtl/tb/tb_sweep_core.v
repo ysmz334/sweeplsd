@@ -24,6 +24,9 @@
 `ifndef HYST_LOW
 `define HYST_LOW 120
 `endif
+`ifndef EDGE_BORDER
+`define EDGE_BORDER 3
+`endif
 `ifndef HYST_MIN
 `define HYST_MIN 3
 `endif
@@ -75,6 +78,7 @@ module tb_sweep_core;
         .power_th(PTH), .strict(`STRICT != 0),
         .hyst_on(`HYST_ON != 0), .hyst_adaptive(`HYST_ADAPT != 0),
         .hyst_low(16'd`HYST_LOW), .hyst_strong_min(18'd`HYST_MIN),
+        .edge_border(4'd`EDGE_BORDER),
         .pix_th(18'd`PIX_TH),
         .border(4'd`BORDER), .mps_2sq(5'd`MPS_2SQ),
         .px_valid(px_valid), .px(px), .px_ready(px_ready), .busy(busy),

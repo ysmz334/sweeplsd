@@ -21,6 +21,9 @@
 `ifndef HYST_LOW
 `define HYST_LOW 120
 `endif
+`ifndef EDGE_BORDER
+`define EDGE_BORDER 3
+`endif
 `ifndef HYST_MIN
 `define HYST_MIN 3
 `endif
@@ -77,7 +80,7 @@ module tb_core_chain;
         .width(W[XW-1:0]), .height(H[XW-1:0]),
         .power_th(PTH), .strict(`STRICT != 0),
         .hyst_on(`HYST_ON != 0), .hyst_adaptive(`HYST_ADAPT != 0),
-        .hyst_low(16'd`HYST_LOW),
+        .hyst_low(16'd`HYST_LOW), .edge_border(4'd`EDGE_BORDER),
         .px(px),
         .ev_valid(ev_v), .ev_kind(ev_k), .ev_x(ev_x_o), .ev_strong(ev_s),
         .f_valid(), .f_x(), .f_y(), .f_code());

@@ -45,6 +45,7 @@ module front_synth (
         .width(width), .height(height),
         .power_th(16'd256), .strict(1'b1),           // v2c board setting (constant,
         .hyst_on(1'b1), .hyst_adaptive(1'b1), .hyst_low(16'd120),  // folds like 1'b1)
+        .edge_border(4'd3),
         .px(px),
         .ev_valid(ev_v), .ev_kind(ev_k), .ev_x(ev_x), .ev_strong(ev_s),
         .f_valid(), .f_x(), .f_y(), .f_code());

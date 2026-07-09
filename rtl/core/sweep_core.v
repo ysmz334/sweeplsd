@@ -47,7 +47,8 @@ module sweep_core #(
     input  wire [15:0]     hyst_low,
     input  wire [17:0]     hyst_strong_min,
     input  wire [17:0]     pix_th,
-    input  wire [3:0]      border,        // (i) border margin (0 = off)
+    input  wire [3:0]      border,        // (i) bbox border margin (0 = off)
+    input  wire [3:0]      edge_border,   // border edge exclusion (0 = off)
     input  wire [4:0]      mps_2sq,       // (h) 2*max_perp_spread^2 (0 = off)
 
     input  wire            px_valid,
@@ -123,6 +124,7 @@ module sweep_core #(
         .width(width), .height(height),
         .power_th(power_th), .strict(strict),
         .hyst_on(hyst_on), .hyst_adaptive(hyst_adaptive), .hyst_low(hyst_low),
+        .edge_border(edge_border),
         .px(px),
         .ev_valid(ev_v), .ev_kind(ev_k), .ev_x(ev_x), .ev_strong(ev_strong),
         .f_valid(), .f_x(), .f_y(), .f_code());

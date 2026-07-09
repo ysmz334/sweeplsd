@@ -122,6 +122,7 @@ module atlys_top (
         .hyst_on(1'b0), .hyst_adaptive(1'b0),                // (d) hysteresis off
         .hyst_low(16'd120), .hyst_strong_min(18'd3),
         .border(4'd0), .mps_2sq(5'd0),                       // (i)+(h) off (baseline)
+        .edge_border(4'd3),                                  // border edge exclusion (always on)
         .px_valid(1'b1), .px(det_px), .px_ready(),
         .px_x(), .px_y(),
         .px_addr_x(px_ax), .px_addr_y(px_ay), .busy(core_busy),

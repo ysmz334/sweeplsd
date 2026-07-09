@@ -47,6 +47,7 @@ EdgeField extractEdges(const GradientField& grad, const Params& params) {
         const std::uint8_t* dir = reinterpret_cast<const std::uint8_t*>(&grad.dir.at(0, y));
         kernels::edgeRow(prow(y - 1), prow(y), prow(y + 1), dir, w, th,
                          params.nms_strict_tiebreak, &out.edge.at(0, y));
+        kernels::zeroEdgeBorderRow(&out.edge.at(0, y), w, y, h, params.edge_border_margin);
         if (params.subpixel_nms)
             kernels::nmsSubpixelRow(prow(y - 1), prow(y), prow(y + 1), dir,
                                     &out.edge.at(0, y), w, &out.delta.at(0, y));
