@@ -88,6 +88,16 @@ struct BackendStats {
     int freelist_underflows = 0;
 };
 BackendStats backendStats();
+
+// Largest moment inputs / derived products the judge sees (empirical worst case
+// for datapath sizing). Inputs fit u64; T2/R2 up to 128 bits.
+struct MomentMax {
+    std::uint64_t n = 0, xs = 0, ys = 0, xss = 0, yss = 0, xys = 0;
+    unsigned __int128 ma = 0, mb = 0, mc = 0, T = 0, T2 = 0, R2 = 0, lhs = 0, rhs = 0;
+    long calls = 0, arith = 0;
+};
+MomentMax momentMax();
+void momentMaxReset();
 #endif
 
 }  // namespace sweeplsd_hls

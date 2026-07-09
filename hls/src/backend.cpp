@@ -103,6 +103,13 @@ inline int rot3(int b) { return b == 2 ? 0 : b + 1; }
 
 #ifndef __SYNTHESIS__
 BackendStats g_stats;
+
+// Diagnostic: the largest moment inputs and derived products the judge actually
+// sees across a run (accumulated until momentMaxReset()). Used to size the judge
+// datapath from the EMPIRICAL worst case rather than the theoretical n=2^18 cap.
+MomentMax g_mmax;
+static inline void mmaxu(std::uint64_t& m, std::uint64_t v) { if (v > m) m = v; }
+static inline void mmaxw(unsigned __int128& m, unsigned __int128 v) { if (v > m) m = v; }
 #endif
 
 // Feature value at (x, r) with the row's buffer index `b` supplied by the
@@ -188,6 +195,15 @@ void judgeAndEmit(hls::stream<SegmentRecord>& out, const LabelState& L, int sx,
 // fully parallel they cost ~177 DSPs (196% of an xc7a35t).
 #pragma HLS INLINE off
 #pragma HLS ALLOCATION operation instances=mul limit=1
+#ifndef __SYNTHESIS__
+    g_mmax.calls++;
+    mmaxu(g_mmax.n, std::uint64_t(L.pix_num));
+    mmaxu(g_mmax.xs, std::uint64_t(L.x_sum));
+    mmaxu(g_mmax.ys, std::uint64_t(L.y_sum));
+    mmaxu(g_mmax.xss, std::uint64_t(L.x_sq_sum));
+    mmaxu(g_mmax.yss, std::uint64_t(L.y_sq_sum));
+    mmaxu(g_mmax.xys, std::uint64_t(L.xy_sum));
+#endif
     if (int(L.pix_num) < g_pix_th) return;
     // (d) hysteresis gate: a segment must contain enough strong pixels.
     if (g_hyst_on && int(L.strong_cnt) < g_hyst_strong_min) return;
@@ -209,6 +225,17 @@ void judgeAndEmit(hls::stream<SegmentRecord>& out, const LabelState& L, int sx,
     const uwide_t R2 = uwide_t(d * d) + uwide_t(4) * uwide_t(mb * mb);
     constexpr int kRejN = (kAspectDen - kAspectNum) * (kAspectDen - kAspectNum);
     constexpr int kRejD = (kAspectDen + kAspectNum) * (kAspectDen + kAspectNum);
+#ifndef __SYNTHESIS__
+    g_mmax.arith++;
+    mmaxw(g_mmax.ma, (unsigned __int128)(ma < 0 ? -ma : ma));
+    mmaxw(g_mmax.mc, (unsigned __int128)(mc < 0 ? -mc : mc));
+    mmaxw(g_mmax.mb, (unsigned __int128)(mb < 0 ? -mb : mb));
+    mmaxw(g_mmax.T, (unsigned __int128)(T < 0 ? -T : T));
+    mmaxw(g_mmax.T2, (unsigned __int128)T2);
+    mmaxw(g_mmax.R2, (unsigned __int128)R2);
+    mmaxw(g_mmax.lhs, (unsigned __int128)(uwide_t(kRejN) * T2));
+    mmaxw(g_mmax.rhs, (unsigned __int128)(uwide_t(kRejD) * R2));
+#endif
     if (uwide_t(kRejN) * T2 > uwide_t(kRejD) * R2) return;  // not elongated
     // (h) max_perp_spread: reject if the smaller eigenvalue of the NORMALISED
     // covariance exceeds max_perp_spread^2 (a curved arc bows off its chord and
@@ -398,6 +425,8 @@ row_loop:
 
 #ifndef __SYNTHESIS__
 BackendStats backendStats() { return g_stats; }
+MomentMax momentMax() { return g_mmax; }
+void momentMaxReset() { g_mmax = MomentMax(); }
 #endif
 
 void sweeplsdBackend(hls::stream<Event>& events, hls::stream<SegmentRecord>& out,

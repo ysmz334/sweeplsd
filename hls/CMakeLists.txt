@@ -58,6 +58,42 @@ if(NOT MSVC)
   target_compile_options(sweeplsd_dropsim PRIVATE -Wno-unknown-pragmas)
 endif()
 
+# Judge datapath sizing probe: empirical max moment inputs/products the judge
+# sees over a corpus (to narrow the 128-bit judge datapath).
+add_executable(sweeplsd_moment
+  src/frontend.cpp
+  src/backend.cpp
+  tools/moment_probe.cpp
+)
+target_include_directories(sweeplsd_moment PRIVATE
+  src
+  compat
+  host
+  ${CMAKE_CURRENT_SOURCE_DIR}/../src
+)
+target_link_libraries(sweeplsd_moment PRIVATE sweeplsd sweeplsd_io)
+if(NOT MSVC)
+  target_compile_options(sweeplsd_moment PRIVATE -Wno-unknown-pragmas)
+endif()
+
+# (B) vertical-stripe parallelism design probe: single-engine golden vs the
+# independent two-engine split; boundary-crossing fidelity cost + load balance.
+add_executable(sweeplsd_stripe
+  src/frontend.cpp
+  src/backend.cpp
+  tools/stripe_probe.cpp
+)
+target_include_directories(sweeplsd_stripe PRIVATE
+  src
+  compat
+  host
+  ${CMAKE_CURRENT_SOURCE_DIR}/../src
+)
+target_link_libraries(sweeplsd_stripe PRIVATE sweeplsd sweeplsd_io)
+if(NOT MSVC)
+  target_compile_options(sweeplsd_stripe PRIVATE -Wno-unknown-pragmas)
+endif()
+
 # Per-image PNG visualiser: buffer-occupancy + dropped-pixel map, and
 # survived/lost segment overlay.
 add_executable(sweeplsd_dropviz
