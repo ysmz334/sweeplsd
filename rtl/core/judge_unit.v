@@ -70,13 +70,18 @@ module judge_unit (
     reg [3:0]  state;
     reg [3:0]  prod;               // which product is being computed (0..8)
     reg [1:0]  pass;               // hi/lo pass 0..3
-    reg [59:0] op_a, op_b;         // current product operands (<= 2^60)
-    reg [127:0] acc;
+    // Datapath narrowed from 128 bits to the EMPIRICAL worst case (moment_probe
+    // over the corpus: n<2^12, Sx/Sy<2^22, Sxx/Syy/Sxy<2^33  =>  ma/mc/mb<2^45,
+    // T<2^46, T^2<2^92, 361*T^2 / 441*R^2 < 2^102). Exact (no rounding): the high
+    // bits removed are provably zero for any input within those bounds; a
+    // pathological blob beyond them is rejected on other criteria anyway.
+    reg [47:0] op_a, op_b;         // product operands (<= 2^46)
+    reg [103:0] acc;               // one product (<= 2^92, room for the <<60 pass)
 
     // product results
-    reg [127:0] p0, p1;            // scratch: minuend / subtrahend pair
-    reg [59:0] v_ma, v_mc, v_T, v_d, v_mb;   // magnitudes (<= 2^59)
-    reg [127:0] t2, d2, mb2;
+    reg [47:0] p0, p1;             // base products <= 2^45 (minuend / subtrahend)
+    reg [47:0] v_ma, v_mc, v_T, v_d, v_mb;   // magnitudes (<= 2^46)
+    reg [95:0] t2, d2, mb2;        // squares of ma/mc/T-scale terms (<= 2^92)
 
     reg [17:0]  r_n;
     reg [29:0]  r_xs, r_ys;
@@ -85,23 +90,29 @@ module judge_unit (
     // (h) max_perp_spread: two extra products (N^2, then A^2 with A = T-2*mps^2*N^2)
     reg [4:0]   r_mps;             // 2*max_perp_spread^2 (0 = off)
     reg         a_pos;            // A > 0 (else no perp reject possible)
-    reg [127:0] ha2;             // A^2  (compared against R^2 = r2_r)
+    reg [95:0] ha2;             // A^2  (compared against R^2 = r2_r)
     // threshold = 2*mps^2 * N^2 ; N^2 = acc when the N*N product just finished.
     wire [46:0] mps_thr = acc[41:0] * r_mps;
 
     wire [29:0] a_lo = op_a[29:0];
-    wire [29:0] a_hi = op_a[59:30];
+    wire [29:0] a_hi = {12'd0, op_a[47:30]};
     wire [29:0] b_lo = op_b[29:0];
-    wire [29:0] b_hi = op_b[59:30];
+    wire [29:0] b_hi = {12'd0, op_b[47:30]};
+    // With the narrowed operands most products have a zero high half (n<2^12 and
+    // Sx/Sy<2^22 fit the low 30 bits): skip the hi*lo / lo*hi / hi*hi passes when
+    // the corresponding operand's high half is zero (a base product then costs 1
+    // or 2 passes instead of 4). Purely a schedule change — the sum is identical.
+    wire ahz = (op_a[47:30] == 18'd0);
+    wire bhz = (op_b[47:30] == 18'd0);
 
     // pass 0: lo*lo (<<0), 1: hi*lo (<<30), 2: lo*hi (<<30), 3: hi*hi (<<60)
     wire [29:0] pa = (pass == 2'd0 || pass == 2'd2) ? a_lo : a_hi;
     wire [29:0] pb = (pass == 2'd0 || pass == 2'd1) ? b_lo : b_hi;
     wire [6:0]  psh = (pass == 2'd0) ? 7'd0 : (pass == 2'd3) ? 7'd60 : 7'd30;
 
-    // staged comparison registers (128-bit adds, <= 2 chained per state)
+    // staged comparison registers (<=104-bit adds, <= 2 chained per state)
     // 361 = 256+64+32+8+1 ; 441 = 256+128+32+16+8+1
-    reg [127:0] r2_r, pA, pB, lhs_r, qA, qB, qC, rhs_r;
+    reg [103:0] r2_r, pA, pB, lhs_r, qA, qB, qC, rhs_r;
 
     always @(posedge clk) begin
         if (en) begin
@@ -136,13 +147,18 @@ module judge_unit (
 
             S_MACC: begin
                 acc <= acc + ({56'd0, mul_p} << psh);
-                if (pass != 2'd3) begin
-                    pass <= pass + 2'd1;
-                    state <= S_MSTART;
-                end else begin
-                    pass <= 2'd0;
-                    state <= S_COMB;
-                end
+                // advance to the next pass whose partial product can be nonzero
+                // (order: 0 lo*lo, 1 hi*lo, 2 lo*hi, 3 hi*hi)
+                case (pass)
+                    2'd0: if (!ahz)      begin pass <= 2'd1; state <= S_MSTART; end
+                          else if (!bhz) begin pass <= 2'd2; state <= S_MSTART; end
+                          else           begin pass <= 2'd0; state <= S_COMB; end
+                    2'd1: if (!bhz)      begin pass <= 2'd2; state <= S_MSTART; end
+                          else           begin pass <= 2'd0; state <= S_COMB; end
+                    2'd2: if (!ahz && !bhz) begin pass <= 2'd3; state <= S_MSTART; end
+                          else              begin pass <= 2'd0; state <= S_COMB; end
+                    default: begin pass <= 2'd0; state <= S_COMB; end
+                endcase
             end
 
             S_COMB: begin
@@ -151,19 +167,19 @@ module judge_unit (
                 case (prod)
                     4'd0: begin p0 <= acc; op_a <= {30'd0, r_xs}; op_b <= {30'd0, r_xs}; end
                     4'd1: begin
-                        v_ma <= p0[59:0] - acc[59:0];   // >= 0 (Cauchy-Schwarz)
-                        op_a <= {42'd0, r_n}; op_b <= {19'd0, r_yss};
+                        v_ma <= p0[47:0] - acc[47:0];   // >= 0 (Cauchy-Schwarz)
+                        op_a <= {30'd0, r_n}; op_b <= {7'd0, r_yss};
                     end
                     4'd2: begin p0 <= acc; op_a <= {30'd0, r_ys}; op_b <= {30'd0, r_ys}; end
                     4'd3: begin
-                        v_mc <= p0[59:0] - acc[59:0];
-                        op_a <= {42'd0, r_n}; op_b <= {19'd0, r_xys};
+                        v_mc <= p0[47:0] - acc[47:0];
+                        op_a <= {30'd0, r_n}; op_b <= {7'd0, r_xys};
                     end
                     4'd4: begin p0 <= acc; op_a <= {30'd0, r_xs}; op_b <= {30'd0, r_ys}; end
                     4'd5: begin
                         // |mb|, T, |d| — then square T
-                        v_mb <= (p0[59:0] >= acc[59:0]) ? (p0[59:0] - acc[59:0])
-                                                        : (acc[59:0] - p0[59:0]);
+                        v_mb <= (p0[47:0] >= acc[47:0]) ? (p0[47:0] - acc[47:0])
+                                                        : (acc[47:0] - p0[47:0]);
                         v_T <= v_ma + v_mc;
                         v_d <= (v_ma >= v_mc) ? (v_ma - v_mc) : (v_mc - v_ma);
                         op_a <= v_ma + v_mc;          // T (registered combine)

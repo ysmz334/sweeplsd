@@ -214,12 +214,31 @@ The gather bottleneck was found by a state-occupancy histogram (42 % of
 back-end cycles were the serial gi=0..5 walk).
 
 **Judge = one shared sequential MAC.** The exact integer test
-`361·T² ≤ 441·R²` needs 9 wide products (up to 128×128). Rather than the 79
+`361·T² ≤ 441·R²` needs 9 wide products. Rather than the 79
 DSPs the HLS version spends (Artix-7 87 %), phase 2 schedules every product
 onto **one 36×36 pipelined multiplier (4 DSP48A1)** decomposed into 18×18
-partial products — ~50-80 cycles per segment, ~10³ segments/frame ≪ the 2.5 M
-cycle frame budget. Total DSP48A1 estimate: judge 4 + accumulate (x², x·y,
-11×11) ~3 ≈ **7 of 58** — comfortable on the LX45.
+partial products — ~10³ segments/frame ≪ the 2.5 M cycle frame budget. Total
+DSP48A1 estimate: judge 4 + accumulate (x², x·y, 11×11) ~3 ≈ **7 of 58** —
+comfortable on the LX45.
+
+**Judge datapath sized to the empirical worst case, not the field cap.** The
+per-label moment fields can hold n up to 2^18, which would make the products
+128-bit; but `hls/tools/moment_probe` measured the LARGEST moments the judge
+actually sees over the Waseda corpus — n<2^12, Sx/Sy<2^22, Sxx/Syy/Sxy<2^33
+(edges are ≤2 px wide, so a component is a thin curve: n ≈ 2·W). Hence
+ma/mc/mb<2^45, T<2^46, T²<2^92, and 361·T² / 441·R² < 2^102. `judge_unit.v` is
+narrowed to that (operands 60→48 bit, accumulator/compare 128→104 bit) — **exact,
+no rounding**: the removed high bits are provably zero for any input within those
+bounds (a pathological blob beyond them is rejected on aspect anyway; the fields
+could add a saturate for full safety). With the narrower operands most base
+products have a zero high half (n and Sx/Sy fit the low 30 bits), so the
+multiplier **skips the hi·lo / lo·hi / hi·hi passes when a half is zero** — a base
+product costs 1–2 passes instead of 4. Bit-exact (tb_judge 303 cases, small
+vectors, FullHD gate IMGP1033 base 2106 / imp 2027, CE_DIV 1&2); it trims the
+judge's cycle count and hence the back-end's CONT wait-for-judge stall
+(IMGP1033 FullHD back-end 1.95M → 1.83M cycles, on top of the parallel-skip
+gather; frame-budget share ~79 % → ~74 %). SW/HLS are unchanged — being exact,
+the narrowed RTL still matches the 128-bit golden.
 
 Per-pixel moment accumulate stays combinational-narrow (11-bit squares); all
 adders ≤ 41 bits.
