@@ -75,9 +75,15 @@ module backend #(
     reg [17:0]    t_n    [0:NL-1];
     reg [29:0]    t_xs   [0:NL-1];
     reg [29:0]    t_ys   [0:NL-1];
-    reg [40:0]    t_xss  [0:NL-1];
-    reg [40:0]    t_yss  [0:NL-1];
-    reg [40:0]    t_xys  [0:NL-1];
+    // (Lever2-B) Sigma x^2 / y^2 / xy stored in 34 bits: the per-label totals
+    // are <= 2^32 over the corpus (moment_probe), 4x below the u34 cap. 34-bit
+    // deep-1024 arrays infer 2 BRAM18 each instead of 3 for u41 (-3 BRAM18),
+    // freeing block RAM for a second labelling engine (2-stripe). The datapath
+    // regs (q_/c_/a_/s_/f_/j_, rec_*) stay u41: reads zero-extend 34->41, the
+    // accumulate write truncates 41->34 losslessly (value <= 2^32 < 2^34).
+    reg [33:0]    t_xss  [0:NL-1];
+    reg [33:0]    t_yss  [0:NL-1];
+    reg [33:0]    t_xys  [0:NL-1];
     reg [17:0]    t_scnt [0:NL-1];   // (d) strong-pixel count per label
     reg           t_has  [0:NL-1];
     reg [10:0]    t_sx   [0:NL-1];

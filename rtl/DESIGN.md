@@ -243,6 +243,18 @@ the narrowed RTL still matches the 128-bit golden.
 Per-pixel moment accumulate stays combinational-narrow (11-bit squares); all
 adders ≤ 41 bits.
 
+**Label-table Σx²/Σy²/Σxy stored in 34 bits (BRAM saving).** The same
+`moment_probe` measurement bounds the per-label second/cross moments at ≤2^32
+over the corpus, so `t_xss/t_yss/t_xys` are declared u34 (4× headroom) instead
+of u41. A 34-bit × 1024-deep array infers **2 BRAM18 each vs 3 for u41 — −3
+BRAM18 total**, freeing block RAM toward a second labelling engine (2-stripe).
+Only the storage changes: the datapath regs (`q_/c_/a_/s_/f_/j_`, `rec_*`) stay
+u41, so reads zero-extend 34→41 and the accumulate write truncates 41→34
+losslessly (bounded ≤2^32 < 2^34). Bit-exact (FullHD gate IMGP1033 imp 2027 /
+base 2106, CE_DIV 1&2, small vectors). Σx/Σy (u30) and n (u18) are left as-is:
+narrowing them to u22/u12 crosses no 18-bit BRAM boundary, so it would trim only
+register area, not block count.
+
 ## Overlay (demo path, outside the verified core)
 
 Segments finalised during frame N are drawn into a **half-resolution 1-bit
