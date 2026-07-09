@@ -41,6 +41,7 @@ namespace H = sweeplsd_hls;
 namespace {
 
 int g_hblank = 280, g_ing = 2, g_proc = 15, g_scav = 0, g_depth = 2048;
+int g_edge_border = 3;  // outer px zeroed at the edge stage (border-ring fix); 0 = pre-fix
 bool g_half = false;
 std::string g_out = ".";
 
@@ -162,7 +163,8 @@ void process(const std::string& path, const Params& p) {
     hls::stream<H::Event> ev;
     const H::HystCfg hyst{p.use_hysteresis, p.hysteresis_adaptive, p.hysteresis_low_th,
                           p.hysteresis_strong_min};
-    H::sweeplsdFrontend(src_s, ev, W, Hh, p.gradient_power_th, p.nms_strict_tiebreak, hyst);
+    H::sweeplsdFrontend(src_s, ev, W, Hh, p.gradient_power_th, p.nms_strict_tiebreak, hyst,
+                        g_edge_border);
 
     std::vector<Ev> evs;
     std::vector<long> interior_row(Hh, 0);
@@ -288,12 +290,13 @@ int main(int argc, char** argv) {
         if (a == "--proc") { g_proc = nx(); continue; }
         if (a == "--scav") { g_scav = nx(); continue; }
         if (a == "--depth") { g_depth = nx(); continue; }
+        if (a == "--edge-border") { g_edge_border = nx(); continue; }
         if (a == "--half") { g_half = true; continue; }
         imgs.push_back(a);
     }
     if (imgs.empty()) {
         std::fprintf(stderr, "usage: fifo_dropviz --out DIR <img...> [--half --hblank N "
-                             "--ing N --proc N --scav N --depth N]\n");
+                             "--ing N --proc N --scav N --depth N --edge-border N]\n");
         return 2;
     }
     const Params p = Params::improved();

@@ -52,6 +52,7 @@ int g_ing = 2;           // clocks to pop+ingest one data event
 int g_proc = 15;         // clocks to process one interior pixel (per-pixel burst)
 int g_scav = 0;          // extra clocks per processed row (scavenger); 0 = fold into proc
 int g_depth = 2048;      // FIFO depth; data dropped at occupancy >= depth-8
+int g_edge_border = 3;   // outer px zeroed at the edge stage (border-ring fix); 0 = pre-fix
 
 struct Ev {
     std::uint8_t kind;
@@ -108,7 +109,8 @@ Result simulate(const std::string& name, const GrayImage& src, const Params& p) 
     hls::stream<H::Event> ev;
     const H::HystCfg hyst{p.use_hysteresis, p.hysteresis_adaptive, p.hysteresis_low_th,
                           p.hysteresis_strong_min};
-    H::sweeplsdFrontend(src_s, ev, W, Hh, p.gradient_power_th, p.nms_strict_tiebreak, hyst);
+    H::sweeplsdFrontend(src_s, ev, W, Hh, p.gradient_power_th, p.nms_strict_tiebreak, hyst,
+                        g_edge_border);
 
     std::vector<Ev> evs;
     std::vector<long> interior_row(Hh, 0);
@@ -219,6 +221,7 @@ int main(int argc, char** argv) {
         if (a == "--proc") { g_proc = next(); continue; }
         if (a == "--scav") { g_scav = next(); continue; }
         if (a == "--depth") { g_depth = next(); continue; }
+        if (a == "--edge-border") { g_edge_border = next(); continue; }
         if (a == "--csv" && i + 1 < argc) { csv_path = argv[++i]; continue; }
         if (!a.empty() && a[0] == '@') {
             for (std::string& s : readManifest(a.substr(1))) imgs.push_back(s);
@@ -228,7 +231,7 @@ int main(int argc, char** argv) {
     }
     if (imgs.empty()) {
         std::fprintf(stderr, "usage: fifo_dropsim <img...|@manifest> [--hblank N --ing N "
-                             "--proc N --scav N --depth N --csv out.csv]\n");
+                             "--proc N --scav N --depth N --edge-border N --csv out.csv]\n");
         return 2;
     }
 
@@ -239,8 +242,8 @@ int main(int argc, char** argv) {
                           "peak_occ,rows_with_drop,first_drop_row,last_drop_row,max_row_drop,"
                           "seg_full,seg_drop,seg_lost,seg_lost_pct\n");
 
-    std::printf("# FIFO drop co-sim (1080p30, hblank=%d, ING=%d PROC=%d SCAV=%d depth=%d)\n",
-                g_hblank, g_ing, g_proc, g_scav, g_depth);
+    std::printf("# FIFO drop co-sim (1080p30, hblank=%d, ING=%d PROC=%d SCAV=%d depth=%d "
+                "edge_border=%d)\n", g_hblank, g_ing, g_proc, g_scav, g_depth, g_edge_border);
     std::printf("%-16s %7s %6s %6s %7s %6s  %8s %8s %8s  %5s\n", "name", "data", "dInt",
                 "dEnd", "drop%", "peak", "segFull", "segDrop", "lost", "lost%");
 

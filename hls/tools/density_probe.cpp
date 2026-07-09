@@ -43,6 +43,7 @@ namespace {
 // can reuse the same numbers for other modes.
 int g_hblank = 280;   // horizontal blanking clocks per line
 int g_cavg = 17;      // back-end clocks per data event (2 ingest + ~15 process)
+int g_edge_border = 3;  // outer px zeroed at the edge stage (border-ring fix); 0 = pre-fix
 
 struct RowStat {
     long interior = 0;
@@ -77,7 +78,7 @@ ImgStat probe(const std::string& name, const GrayImage& src) {
     const H::HystCfg hyst{p.use_hysteresis, p.hysteresis_adaptive, p.hysteresis_low_th,
                           p.hysteresis_strong_min};
     H::sweeplsdFrontend(src_s, ev, src.width, src.height, p.gradient_power_th,
-                        p.nms_strict_tiebreak, hyst);
+                        p.nms_strict_tiebreak, hyst, g_edge_border);
 
     std::vector<RowStat> rows(src.height);
     int y = 0;
@@ -143,6 +144,7 @@ int main(int argc, char** argv) {
         std::string a = argv[i];
         if (a == "--hblank" && i + 1 < argc) { g_hblank = std::atoi(argv[++i]); continue; }
         if (a == "--cavg" && i + 1 < argc) { g_cavg = std::atoi(argv[++i]); continue; }
+        if (a == "--edge-border" && i + 1 < argc) { g_edge_border = std::atoi(argv[++i]); continue; }
         if (!a.empty() && a[0] == '@') {
             for (std::string& s : readManifest(a.substr(1))) imgs.push_back(s);
             continue;
@@ -150,12 +152,14 @@ int main(int argc, char** argv) {
         imgs.push_back(a);
     }
     if (imgs.empty()) {
-        std::fprintf(stderr, "usage: density_probe [--hblank N] [--cavg N] <img...|@manifest>\n");
+        std::fprintf(stderr, "usage: density_probe [--hblank N] [--cavg N] [--edge-border N] "
+                             "<img...|@manifest>\n");
         return 2;
     }
 
     std::printf("# front-end = Params::improved() (== live_core.v); geometry 1080p30 "
-                "hblank=%d cavg=%d  budget_line=(w+hblank)/cavg\n", g_hblank, g_cavg);
+                "hblank=%d cavg=%d edge_border=%d  budget_line=(w+hblank)/cavg\n",
+                g_hblank, g_cavg, g_edge_border);
     std::printf("name,w,h,interior,endpoint,data,dens_pct,mean_row,p50,p90,p99,max_row,"
                 "max_int_row,budget_line,rows_over\n");
 
