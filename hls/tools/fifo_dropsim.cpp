@@ -12,11 +12,15 @@
 //               at cycle y*(W+hblank)+x; the end-of-row marker at the end of the
 //               active line, then hblank idle clocks, then the next row. This is
 //               the 1080p30 live geometry (thesis 1920x1080 on the board).
-//   consumer  : the back-end FSM pops a data event in ~ING clocks (ingest) but,
-//               on popping an end-of-row marker, stalls for the PROCESS burst of
-//               the previous row (~PROC clocks per interior pixel + scavenge)
-//               during which it pops nothing and the FIFO fills — the lumpy
-//               drain that makes dense rows overflow (backend.v, backend.cpp).
+//   consumer  : INTERLEAVED (default) — the back-end pops an interior event and
+//               immediately spends fetch+gather+accumulate (~PROC clocks) before
+//               popping the next, so the FIFO drains continuously; endpoints and
+//               row markers cost only the ingest. This matches the real FSM,
+//               validated against the RTL ground-truth burst TB
+//               (rtl/tb/tb_backend_burst.v). The legacy LUMP model (--lump)
+//               instead stalls the whole previous row's processing at the EOR
+//               marker; it over-states dense-image loss ~2-3x (the FSM never
+//               stalls a whole row at once) and is kept only for comparison.
 //   FIFO      : depth 2048, data events dropped once occupancy >= 2040 (the
 //               8-slot marker reserve); EOR/EOF markers are never dropped.
 //
@@ -57,6 +61,15 @@ double g_proc = 15;      // clocks to process one interior pixel (per-pixel burs
 double g_scav = 0;       // extra clocks per processed row (scavenger); 0 = fold into proc
 int g_depth = 2048;      // FIFO depth; data dropped at occupancy >= depth-8
 int g_edge_border = 3;   // outer px zeroed at the edge stage (border-ring fix); 0 = pre-fix
+bool g_lump = false;     // consumer model: false = INTERLEAVED (per-interior work charged
+                         //   at the interior event's pop, matching the real FSM's continuous
+                         //   drain); true = legacy LUMP-at-EOR (over-pessimistic on dense
+                         //   images — a whole row's processing stalls the pop at the EOR
+                         //   marker, manufacturing multi-row pile-ups the FSM never has).
+                         //   The RTL ground-truth burst TB (rtl/tb/tb_backend_burst.v: real
+                         //   backend.v + real event_fifo drop_mode=1 at HDMI pixel timing)
+                         //   showed the lump model over-states dense-image loss ~2-3x and
+                         //   dropped-event count ~9x; the interleaved model matches it.
 
 struct Ev {
     std::uint8_t kind;
@@ -148,18 +161,32 @@ Result simulate(const std::string& name, const GrayImage& src, const Params& p) 
 
     // ---- FIFO co-sim (event_fifo.v drop_mode=1) ----
     const long afull = g_depth - 8;   // data dropped at occupancy >= afull
-    auto cost = [&](const Ev& e) -> long {
-        if (e.kind == H::kEventEndOfRow) {
-            // popping this marker triggers processRow(e.y - 1) in the back-end
-            long burst = (e.y >= 1 && e.y - 1 < Hh)
-                ? std::llround(g_proc * interior_row[e.y - 1] + g_scav) : 0;
-            return std::llround(g_ing) + burst;
+    // Per-event pop cost (clocks). INTERLEAVED (default): the real back-end pops
+    // an interior event and immediately spends fetch+gather+accumulate (~PROC
+    // clocks) before popping the next, so the per-interior work is charged AT THE
+    // INTERIOR EVENT's pop — a continuous drain. Endpoints/markers cost only the
+    // ingest (heavy work is per-interior). SCAV, if set, adds the scavenger burst
+    // at the EOR marker (else folded into PROC). LUMP (legacy, --lump) charges the
+    // whole previous row's processing when the EOR marker is popped.
+    auto cost = [&](const Ev& e) -> double {
+        if (g_lump) {
+            if (e.kind == H::kEventEndOfRow) {
+                double burst = (e.y >= 1 && e.y - 1 < Hh)
+                    ? g_proc * double(interior_row[e.y - 1]) + g_scav : 0.0;
+                return g_ing + burst;
+            }
+            return g_ing;
         }
-        return std::llround(g_ing);  // data event / EOF
+        if (e.kind == H::kEventInterior) return g_ing + g_proc;
+        if (e.kind == H::kEventEndOfRow) {
+            double s = (e.y >= 1 && e.y - 1 < Hh) ? g_scav * double(interior_row[e.y - 1]) : 0.0;
+            return g_ing + s;
+        }
+        return g_ing;  // endpoint / EOF
     };
 
     std::deque<int> fifo;
-    long be_free = 0;                 // cycle the back-end can pop next
+    double be_free = 0;               // cycle the back-end can pop next (fractional)
     std::vector<char> drop(evs.size(), 0);
     std::vector<int> row_drop(Hh, 0);
     for (std::size_t i = 0; i < evs.size(); ++i) {
@@ -167,8 +194,8 @@ Result simulate(const std::string& name, const GrayImage& src, const Params& p) 
         // drain: pop everything the back-end finishes reading by cycle pc
         while (!fifo.empty()) {
             int j = fifo.front();
-            long pop_cyc = std::max(be_free, evs[j].pcyc);
-            if (pop_cyc > pc) break;
+            double pop_cyc = std::max(be_free, double(evs[j].pcyc));
+            if (pop_cyc > double(pc)) break;
             be_free = pop_cyc + cost(evs[j]);
             fifo.pop_front();
         }
@@ -227,6 +254,7 @@ int main(int argc, char** argv) {
         if (a == "--scav") { g_scav = nextf(); continue; }
         if (a == "--depth") { g_depth = next(); continue; }
         if (a == "--edge-border") { g_edge_border = next(); continue; }
+        if (a == "--lump") { g_lump = true; continue; }
         if (a == "--csv" && i + 1 < argc) { csv_path = argv[++i]; continue; }
         if (!a.empty() && a[0] == '@') {
             for (std::string& s : readManifest(a.substr(1))) imgs.push_back(s);
@@ -248,7 +276,8 @@ int main(int argc, char** argv) {
                           "seg_full,seg_drop,seg_lost,seg_lost_pct\n");
 
     std::printf("# FIFO drop co-sim (1080p30, hblank=%d, ING=%g PROC=%g SCAV=%g depth=%d "
-                "edge_border=%d)\n", g_hblank, g_ing, g_proc, g_scav, g_depth, g_edge_border);
+                "edge_border=%d, model=%s)\n", g_hblank, g_ing, g_proc, g_scav, g_depth,
+                g_edge_border, g_lump ? "LUMP" : "INTERLEAVED");
     std::printf("%-16s %7s %6s %6s %7s %6s  %8s %8s %8s  %5s\n", "name", "data", "dInt",
                 "dEnd", "drop%", "peak", "segFull", "segDrop", "lost", "lost%");
 

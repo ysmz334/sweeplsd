@@ -47,6 +47,9 @@ double g_ing = 2, g_proc = 15, g_scav = 0;  // fractional so measured cy/interio
 int g_edge_border = 3;  // outer px zeroed at the edge stage (border-ring fix); 0 = pre-fix
 bool g_half = false;
 std::string g_out = ".";
+std::string g_dropmask;  // if set, per-image "{base}_dropmask.txt" is loaded as the
+                         // faithful RTL drop set (from tb_backend_burst) instead of the
+                         // internal lump-model drain deciding drops.
 
 struct Ev { std::uint8_t kind; std::uint16_t x; std::uint8_t strong; int y; long pcyc; };
 
@@ -218,6 +221,33 @@ void process(const std::string& path, const Params& p) {
         } else fifo.push_back((int)i);
     }
 
+    // Faithful override: replace the internal lump-model drop set with the RTL
+    // ground-truth drop mask (tb_backend_burst {base}_dropmask.txt). The blue
+    // occupancy ramp (occ/row_peak) stays as the co-sim estimate (cosmetic); the
+    // RED drops and the segment survive/lost map now reflect the real hardware.
+    if (!g_dropmask.empty()) {
+        std::string mpath = g_dropmask + "/" + base + "_dropmask.txt";
+        std::FILE* mf = std::fopen(mpath.c_str(), "r");
+        if (!mf) { std::fprintf(stderr, "SKIP (dropmask missing): %s\n", mpath.c_str()); return; }
+        std::vector<char> mask; mask.reserve(evs.size());
+        int v;
+        while (std::fscanf(mf, "%d", &v) == 1) mask.push_back((char)(v != 0));
+        std::fclose(mf);
+        if (mask.size() != evs.size()) {
+            std::fprintf(stderr, "SKIP (dropmask size %zu != events %zu): %s\n",
+                         mask.size(), evs.size(), mpath.c_str());
+            return;
+        }
+        std::fill(drop.begin(), drop.end(), 0);
+        std::fill(row_drop.begin(), row_drop.end(), 0);
+        for (std::size_t i = 0; i < evs.size(); ++i) {
+            drop[i] = mask[i];
+            const bool is_data = evs[i].kind == H::kEventInterior || evs[i].kind == H::kEventEndpoint;
+            int ry = evs[i].y;
+            if (drop[i] && is_data && ry >= 0 && ry < Hh) row_drop[ry]++;
+        }
+    }
+
     // ---- buffer map ----
     RGB buf; buf.init(img, 0.32);
     const int GUT = 14;  // left gutter width
@@ -296,12 +326,14 @@ int main(int argc, char** argv) {
         if (a == "--scav") { g_scav = nxf(); continue; }
         if (a == "--depth") { g_depth = nx(); continue; }
         if (a == "--edge-border") { g_edge_border = nx(); continue; }
+        if (a == "--dropmask" && i + 1 < argc) { g_dropmask = argv[++i]; continue; }
         if (a == "--half") { g_half = true; continue; }
         imgs.push_back(a);
     }
     if (imgs.empty()) {
         std::fprintf(stderr, "usage: fifo_dropviz --out DIR <img...> [--half --hblank N "
-                             "--ing N --proc N --scav N --depth N --edge-border N]\n");
+                             "--ing N --proc N --scav N --depth N --edge-border N "
+                             "--dropmask DIR]\n");
         return 2;
     }
     const Params p = Params::improved();

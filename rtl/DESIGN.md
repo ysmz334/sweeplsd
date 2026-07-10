@@ -207,11 +207,12 @@ removed, so records stay bit-exact (verified incl. the FullHD gate). Per-pixel
 cost drops by `4−k` cycles for `k` present neighbours (largest on the sparse
 thin-line pixels that dominate): measured **18.9 → 16.0 cy/interior on
 IMGP1033 (×1.18)**, cutting the back-end's share of the 1080p30 frame-clock
-budget from ~93 % to ~79 %. This is a **partial** overflow mitigation (corpus
-segment loss ~52 % → ~34 % in the calibrated FIFO-drop co-sim); the throughput
-gap to zero-drop needs stripe parallelism on top (see the FIFO-drop notes).
-The gather bottleneck was found by a state-occupancy histogram (42 % of
-back-end cycles were the serial gi=0..5 walk).
+budget from ~93 % to ~79 %. This lowers the FIFO backlog on dense rows, so it
+helps overflow; the actual measured overflow figures are in **Overflow reality
+check** below. (The per-lever FIFO-drop *co-sim* loss numbers this section once
+quoted — ~52 % → ~34 % corpus — came from a lump-drain host model later shown to
+be ~2× over-pessimistic; see below.) The gather bottleneck was found by a
+state-occupancy histogram (42 % of back-end cycles were the serial gi=0..5 walk).
 
 **GATHER W-continuation fast-path (`backend.v`, throughput opt).** Re-running
 the state-occupancy histogram *after* the parallel-skip showed GATHER was still
@@ -275,6 +276,30 @@ masks the kind to 0 so an uninitialised-bank X cannot leak. Measured
 `synth_be`: 80.32 MHz, 0 failing endpoints, critical path unchanged (still
 `u_judge/Mmult_mps_thr`, the (h) DSP), so the 74.25 MHz constraint still closes.
 
+**FETCH `S_RB` bubble removed on adjacent pixels (`backend.v`, throughput opt).**
+The 3-cycle short-path fetch is `S_RNEXT` (capture the left column + issue the
+centre address) → **`S_RB`** (issue px+1, a pure `addr@T→data@T+2` wait) → `S_RC`
+(capture the centre column px). On a run-continuation (`prev_x == px−1`) the centre
+column was already read as the PREVIOUS pixel's right column and still sits in
+`n_aR`/`n_bR`/`rq_*_p1` (those are overwritten only at this pixel's `S_GATH0`), so
+it is **carried** rather than re-read: `S_RNEXT` issues the right column (px+1)
+directly and a single wait state (**`S_RC2`**) covers its read latency — 2 cycles
+instead of 3. Because `S_RC` is skipped, `pxn`/`pstrongn` (the next interior x) are
+captured at `S_GATH0` from the still-valid `xl*_q` (`via_fast` flag). The carry is
+bit-identical to a fresh read at column px (same bank/tag/address, and `row_lab[px]`
+is untouched between the previous `S_GATH0` and here — the previous pixel writes
+`row_lab[px−1]`); the `prev_x==px−1` gate is the same one the W fast-path uses and
+is provably false after any label-exhaustion skip (px jumps by ≥2), so the carried
+registers always belong to px−1. Measured: FETCH **−114 k cy on IMGP1077** (54.7 %
+of pixels adjacent), back-end 2.25 M → **2.137 M cy (10.76 → 10.22 cy/interior,
+−5.0 %)**; IMGP1033 (33.5 % adjacent) 1.456 M → 1.416 M (−2.8 %). Bit-exact (FullHD
+gate imp 2027 / 3030 / 2617 / 3384 records, small vectors + tb_sweep_core, CE_DIV
+1 & 2). Overflow effect (RTL burst TB, see below): corpus loss **4.83 % → 3.99 %**
+(−17 % relative), worst frames −3…−9 pt (IMGP1049 38.9→29.7 %, IMGP1077 24.6→18.8 %,
+one frame +0.8 pt from benign burst-phase reshuffling). The added `via_fast` mux on
+the `f_ra` address is off the FE critical path (re-confirm `synth_be` before a
+reflash).
+
 **Judge = one shared sequential MAC.** The exact integer test
 `361·T² ≤ 441·R²` needs 9 wide products. Rather than the 79
 DSPs the HLS version spends (Artix-7 87 %), phase 2 schedules every product
@@ -317,6 +342,43 @@ losslessly (bounded ≤2^32 < 2^34). Bit-exact (FullHD gate IMGP1033 imp 2027 /
 base 2106, CE_DIV 1&2, small vectors). Σx/Σy (u30) and n (u18) are left as-is:
 narrowing them to u22/u12 crosses no 18-bit BRAM boundary, so it would trim only
 register area, not block count.
+
+**Overflow reality check (RTL ground-truth burst sim).** The per-lever FIFO-drop
+loss figures elsewhere in this doc came from a *host* co-sim
+(`hls/tools/fifo_dropsim.cpp`) that modelled the back-end drain as a **lump** — a
+whole row's PROCESS cost charged when the EOR marker is popped, stalling the pop
+for thousands of cycles. The real FSM **interleaves**: it processes each interior
+event right after popping it, so it drains continuously and never stalls a whole
+row at once. That difference makes the lump model manufacture multi-row pile-ups
+the hardware never has. A cycle-accurate RTL burst testbench measured the truth:
+
+- `rtl/tb/tb_backend_burst.v` = the real `backend.v` + real `event_fifo.v` in
+  `drop_mode=1`, fed the golden event stream at **1080p30 pixel timing** (active
+  1 px/clk at the event's column, EOR, then `hblank` idle clocks). Validated: with
+  an oversized (drop-proof) FIFO it reproduces the **exact golden record count**,
+  so the producer/back-end/plumbing are faithful; its peak *backlog* on the
+  densest frame is ~25.7 k events (12.5× the 2048-deep FIFO) — overflow is a
+  **burst** limit, not an average-throughput one (the back-end fits the frame
+  budget on average).
+- Over all **150 Waseda frames**: **corpus segment loss 4.83 %** (10,731 /
+  222,263) on the `gi=0`-fold back-end, **3.99 %** (8,879) after the `S_RB`-bubble
+  removal above; **26–27/150 frames drop anything, ~123 are lossless**, worst-case
+  **44–47 %** (IMGP1010) — not the ~79–85 % the lump model predicted for the
+  densest frames.
+- 3-way corpus: lump co-sim **9.2 %** (≈2× high), interleaved-drain co-sim
+  **1.3–2.4 %** (low — a *constant* per-interior cost cannot match the per-image
+  cy/interior spread, e.g. two similar-density frames lose 9.8 % vs 47 %), **RTL
+  ground-truth 4.83 %**. `fifo_dropsim` was corrected to the interleaved model
+  (`--lump` kept for comparison) but is only a fast estimate; the **RTL burst TB
+  is the canonical overflow tool**.
+
+So single-engine overflow on the LX45 is a **minor, dense-frame-localised** effect
+(~15 frames), not the corpus-wide problem the co-sim implied — the earlier "needs
+stripe parallelism for zero-drop" framing was driven by the over-pessimistic
+model. The `S_RB`-bubble removal (above) took the corpus from 4.83 % to 3.99 %;
+the residual is chipped into by further drain speed-ups or a modest FIFO deepening
+(the many frames that peak at exactly the 2040 afull threshold with small loss are
+the ones a deeper FIFO would rescue).
 
 ## Overlay (demo path, outside the verified core)
 

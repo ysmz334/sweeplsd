@@ -11,6 +11,10 @@ CMakeUserPresets.json
 # FIFO-drop study visualiser output (large, regenerable via hls/tools/fifo_dropviz)
 dropviz_out/
 
+# Local corpus manifest for the overflow tools: absolute paths into the (not
+# redistributed) Waseda dataset — machine-specific, keep on disk, never commit.
+hls/tools/waseda150.txt
+
 # HLS build artifacts (hls/)
 hls/proj_sweeplsd_hls/
 hls/logs/
