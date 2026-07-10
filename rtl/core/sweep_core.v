@@ -130,9 +130,13 @@ module sweep_core #(
         .f_valid(), .f_x(), .f_y(), .f_code());
 
     // ---- elastic buffer ------------------------------------------------------------
+    // AW=13 (8192 deep): with the concurrent-ingest backend the FIFO only
+    // backs up while the labeller runs >3 rows behind; the worst Waseda-corpus
+    // backlog is IMGP1032's 5,975 events (drop-proof-FIFO measurement), so
+    // 8192 makes every corpus frame zero-drop. Cost ~+5 RAMB16 vs AW=11.
     wire fifo_empty, fifo_pop;
     wire [14:0] fifo_front;
-    event_fifo #(.DW(15), .AW(11)) u_fifo (
+    event_fifo #(.DW(15), .AW(13)) u_fifo (
         .clk(clk), .rst(rst || frame_start), .en(en),
         .drop_mode(drop_mode), .dropped(ev_dropped),
         .push(ev_v), .wdata({ev_strong, ev_k, ev_x}), .stall(stall),

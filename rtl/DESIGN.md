@@ -366,6 +366,37 @@ tb_sweep_core full chain + FullHD gates imp 2027 / base 2106 / 1077 3030 /
 1049 3384 / 1062 1713, CE_DIV 1 & 2). Timing: `synth_be` 81.34 MHz, 0 failing
 endpoints, critical path unchanged (judge DSP).
 
+**Concurrent event ingest (`backend.v`, throughput opt — decouples supply from
+drain).** The FSM used to ingest serially: all of row y+1's events popped
+back-to-back in S_POP (1 cycle each) *between* row labellings, so the FIFO
+backed up during a dense row's labelling AND the labeller paid 1 cy/event
+afterwards. Ingestion now runs as a parallel engine in the same clocked
+process: whenever an event is available it is filed into the feature banks /
+interior lists at 1 event/cycle, concurrently with labelling an earlier row.
+Structure: feature banks go 3 → **4** (row mod 4 — the labeller reads rows
+py−1/py/py+1 while the engine writes py+2) and the interior-x lists go
+parity → **3 banks** (row mod 3: one being read, one complete, one being
+written); the S_POP state degenerates to a row-handshake (label row proc_y
+once `ingest_y ≥ proc_y+2`, or EOF). Flow control: the engine pops only while
+`ingest_y ≤ proc_y+2`, which keeps every written bank disjoint from every
+read bank, and each array keeps exactly ONE textual writer (XST
+single-write-port rule). Effects on IMGP1077: ingest cycles 277,257 →
+**1,562** (startup sync only); back-end 1.543 M → **1.267 M cy (6.06
+cy/interior)**, frame-budget share 62 % → **51 %**; IMGP1033 1.067 M →
+0.899 M. Session cumulative (terminal resolve + fetch fold + concurrent
+ingest): IMGP1077 **2.137 M → 1.267 M = −40.7 %**. The burst behaviour
+changes qualitatively: events drain into the banks at line rate while the
+labeller works, so the FIFO only backs up when the engine is flow-blocked
+(labeller > 3 rows behind) — IMGP1077's FIFO peak occupancy drops to **1**
+(!), IMGP1007 (the densest frame) to 169 with zero drops. The single
+remaining dropper is IMGP1032 (a long ~18-row adopt-heavy dense band): its
+true backlog measured 5,975 events (drop-proof FIFO run), i.e. a 8192-deep
+event FIFO would make the whole corpus zero-drop. Bit-exact everywhere
+(small vectors + tb_sweep_core full chain + FullHD gates imp 2027 / base
+2106 / 1077 3030 / 1049 3384 / 1062 1713, CE_DIV 1 & 2). Timing: `synth_be`
+81.67 MHz, 0 failing endpoints, critical path unchanged (judge DSP); backend
+BRAM after the extra banks: 36 RAMB16 + 16 RAMB8 (of 116/232).
+
 **Judge = one shared sequential MAC.** The exact integer test
 `361·T² ≤ 441·R²` needs 9 wide products. Rather than the 79
 DSPs the HLS version spends (Artix-7 87 %), phase 2 schedules every product
@@ -453,6 +484,16 @@ levers (drain cy/row vs the 2200-cycle row budget, backlog integral validated
 against a drop-proof-FIFO run to 1.6 %) predicted the densest frame's backlog
 would shrink from ~19 k events to under the FIFO depth — confirmed: IMGP1077,
 the worst live-demo frame, now drops nothing (peak 530/2048).
+
+**With the concurrent-ingest engine (above) the corpus reads 0.166 % at the
+2048 FIFO — a single lossy frame (IMGP1032, 368 segments; every other frame
+now peaks at ≤ 346 FIFO entries, 6× under the depth) — and ZERO with the
+8192-deep FIFO now instantiated in `sweep_core`**: IMGP1032's true backlog is
+5,975 events (drop-proof-FIFO run), directly verified zero-drop at 8192 with
+all 2,617 records emitted, and every no-drop trajectory is depth-invariant, so
+the whole 150-frame corpus is provably lossless. Journey of the corpus overflow
+loss: live config 52 % → gather/judge/L3 4.83 % → RB fold 3.99 % → terminal
+resolve + fetch fold 0.215 % → concurrent ingest 0.166 % → **8192 FIFO 0 %.**
 
 ## Overlay (demo path, outside the verified core)
 
