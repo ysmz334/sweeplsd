@@ -248,7 +248,32 @@ Bit-exact across the same gate.
 **Combined (INGEST fuse + W fast-path): IMGP1033_imp back-end 1.83 M → 1.58 M cy
 (−13.8 %), 14.96 → 12.90 cy/interior, 1080p30 frame-budget share ~74 % → ~64 %.**
 GATHER is still #1 (506 k, 32 %); FETCH is now #2 (371 k, 23.5 %, the short-path
-`addr@T→data@T+2` floor). Next candidate: fold the `gi=0` GATHER setup cycle.
+`addr@T→data@T+2` floor).
+
+**GATHER `gi=0` setup folded into dispatch (`backend.v`, throughput opt).** The
+per-pixel GATHER floor was 2 cycles: a `gi=0` state that only *captured* the
+right (px+1) column neighbours, then the first dispatch/resolve one cycle later.
+The right column's feature banks (`fq_*`) and row-label (`rowq_*`) are still
+combinationally valid on entry to `S_GATH0` (the read port is only repurposed for
+the next-pixel prefetch *inside* that cycle), so the dispatch/resolve chain now
+reads them combinationally and runs in the **same** cycle as the capture: `gi=0`
+both latches `n_aR`/`rq_lab_p1` (for the later iterations) *and* dispatches the
+highest-priority neighbour. The gather inputs are gi-aware — `naR_eff` /
+`rqlab_p1_eff` read the live right-column at `gi=0` and the latched
+`n_aR`/`rq_lab_p1` at `gi≥1`; all other neighbours (N/NW/W) are already latched by
+`S_RC`. The `naR_eff` NE capture is **inlined** (not `fcap(...)`): a function
+call reading the `fq_*` banks *internally* from a continuous assignment has an
+incomplete iverilog sensitivity list (it would hold a stale power-up X even after
+the banks settle — synthesis/HW are unaffected, but the sim gate is not); the
+inlined tag/kind reads make the wire depend on `fq_*` directly, and a tag miss
+masks the kind to 0 so an uninitialised-bank X cannot leak. Measured
+**−122,215 cy** = exactly one cycle per interior pixel (122,215): GATHER 506 k →
+384 k, back-end **1.58 M → 1.456 M cy** (−7.6 %), 12.90 → **11.92 cy/interior**,
+1080p30 frame-budget share ~64 % → ~59 %. Bit-exact (FullHD gate imp 2027 / base
+2106, CE_DIV 1 & 2, tb_sweep_core full chain). This lever adds combinational
+`fcap→conn-address` logic, so it is the one with timing risk — verified in
+`synth_be`: 80.32 MHz, 0 failing endpoints, critical path unchanged (still
+`u_judge/Mmult_mps_thr`, the (h) DSP), so the 74.25 MHz constraint still closes.
 
 **Judge = one shared sequential MAC.** The exact integer test
 `361·T² ≤ 441·R²` needs 9 wide products. Rather than the 79

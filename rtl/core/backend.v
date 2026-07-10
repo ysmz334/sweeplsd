@@ -390,22 +390,9 @@ module backend #(
     wire touches_end = ((n_aL | n_aC | n_aR | n_cL | n_cR | n_bL | n_bC | n_bR)
                         & 2'd2) != 2'd0;
 
-    // (gather) parallel neighbour dispatch. The four already-labelled neighbours
-    // in golden order NE, N, NW, W (MSB..LSB); the serial gi=0..5 walk is
-    // replaced by a priority pick over the ones still to process, so absent
-    // neighbours cost no cycles. The find launched for the picked neighbour, and
-    // the label0/label1 accumulation + path-compression in S_GATH1, are
-    // unchanged — only the dead cycles between finds are removed (records stay
-    // bit-exact; see rtl/DESIGN.md).
-    wire [3:0] gpres = {n_aR == K_INT, n_aC == K_INT, n_aL == K_INT, n_cL == K_INT};
-    wire [3:0] grem  = gpres & ~pdone;              // present & not yet launched
-    wire [3:0] gselbit = grem[3] ? 4'b1000 :        // NE first
-                         grem[2] ? 4'b0100 :        // then N
-                         grem[1] ? 4'b0010 :        // then NW
-                                   4'b0001;         // then W
-    wire [NLW-1:0] gcand = grem[3] ? rq_lab_p1 :
-                           grem[2] ? rq_lab_0  :
-                           grem[1] ? rq_lab_m1 : w_sav;
+    // (gather) parallel neighbour dispatch + gi-aware right-column read: the
+    // gpres/grem/gselbit/gcand wires are defined after the fcap function (naR_eff
+    // needs it). See there.
 
     // merge combine (a_* = l0's entry, q_* = l1's entry)
     wire keep0 = ($signed(a_lrow) > $signed(q_lrow)) ||
@@ -470,6 +457,51 @@ module backend #(
             fcap = (valid && t == want_tag) ? k : 2'd0;
         end
     endfunction
+
+    // (gather) parallel neighbour dispatch. The four already-labelled neighbours
+    // in golden order NE, N, NW, W (MSB..LSB); the serial gi=0..5 walk is
+    // replaced by a priority pick over the ones still to process, so absent
+    // neighbours cost no cycles. The find launched for the picked neighbour, and
+    // the label0/label1 accumulation + path-compression in S_GATH1, are
+    // unchanged — only the dead cycles between finds are removed (records stay
+    // bit-exact; see rtl/DESIGN.md).
+    //
+    // (Lever 3) The gi=0 GATHER setup no longer costs its own cycle: gpres/gcand
+    // dispatch the first neighbour in the SAME cycle they capture the right
+    // column. The right-above (NE) neighbour's feature bank / row-label are only
+    // COMBINATIONALLY available at gi=0 (fq/rowq still hold px+1 before the port
+    // is repurposed for the next-pixel prefetch), so naR_eff/rqlab_p1_eff read
+    // them combinationally at gi=0 and from the latched n_aR / rq_lab_p1 from
+    // gi>=1. All the other gather inputs (n_aC/n_aL/n_cL, rq_lab_0/rq_lab_m1) are
+    // already latched by S_RC / S_RNEXT and valid at gi=0. This feeds a
+    // combinational fcap into the gather-dispatch → conn-address path, so it is
+    // the one lever with timing risk (verify synth_be closes 74.25 MHz).
+    // NOTE: the gi=0 NE capture is INLINED here (not fcap(...)) on purpose.
+    // fcap reads the fq_* banks through module wires, not its arguments; called
+    // from a *continuous* assignment, iverilog's sensitivity list omits those
+    // internal reads, so the wire would hold a stale power-up X even after the
+    // banks settle (procedural fcap calls are fine — they re-evaluate at the
+    // clock edge). Inlining the tag/kind reads makes the continuous assign
+    // depend on fq_* directly. On a tag miss (ne_tag != py_m1) the kind is
+    // masked to 0, so an uninitialised-bank X cannot leak. Synthesis-identical
+    // to the fcap form.
+    wire        ne_valid = (px + 11'd1 < width[10:0]) && !row0;
+    wire [12:0] ne_tag  = (b_prev == 2'd0) ? ft_of_bank0 :
+                          (b_prev == 2'd1) ? ft_of_bank1 : ft_of_bank2;
+    wire [1:0]  ne_kind = (b_prev == 2'd0) ? fk_of_bank0 :
+                          (b_prev == 2'd1) ? fk_of_bank1 : fk_of_bank2;
+    wire [1:0]  naR_g0  = (ne_valid && ne_tag == py_m1) ? ne_kind : 2'd0;
+    wire [1:0] naR_eff = (gi == 3'd0) ? naR_g0 : n_aR;
+    wire [NLW-1:0] rqlab_p1_eff = (gi == 3'd0) ? rowq_lab : rq_lab_p1;
+    wire [3:0] gpres = {naR_eff == K_INT, n_aC == K_INT, n_aL == K_INT, n_cL == K_INT};
+    wire [3:0] grem  = gpres & ~pdone;              // present & not yet launched
+    wire [3:0] gselbit = grem[3] ? 4'b1000 :        // NE first
+                         grem[2] ? 4'b0100 :        // then N
+                         grem[1] ? 4'b0010 :        // then NW
+                                   4'b0001;         // then W
+    wire [NLW-1:0] gcand = grem[3] ? rqlab_p1_eff :
+                           grem[2] ? rq_lab_0  :
+                           grem[1] ? rq_lab_m1 : w_sav;
 
     always @(posedge clk) begin
         if (en) begin
@@ -689,6 +721,13 @@ module backend #(
 
             // ---- gather + find (NE, N, NW, W) ----
             S_GATH0: begin
+                // gi=0 captures the right column (px+1) neighbours and repurposes
+                // the read port to prefetch the next pixel's left column. The
+                // dispatch/resolve chain below then runs in the SAME cycle
+                // (gpres/gcand are gi-aware, reading the right column
+                // combinationally at gi=0) — the old setup-only cycle is folded
+                // away (Lever 3). n_aR/n_cR/n_bR/rq_lab_p1 are still latched here
+                // for the later gather iterations and the resolve.
                 if (gi == 3'd0) begin   // column x+1 data valid on entry
                     n_aR <= fcap(b_prev, py_m1, (px + 11'd1 < width[10:0]) && !row0);
                     n_cR <= fcap(b_cur, py, px + 11'd1 < width[10:0]);
@@ -699,8 +738,10 @@ module backend #(
                         f_ra <= pxn - 11'd1;   // column; fq/rowq then hold it
                         row_ra <= pxn - 11'd1; // untouched through the resolve
                     end
-                    gi <= 3'd1;         // dispatch next cycle (regs settle)
-                end else if (grem == 4'd0) begin
+                    gi <= 3'd1;
+                end
+
+                if (grem == 4'd0) begin
                     // all present neighbours processed -> resolve
                     if (label0 == 10'd0) begin
                         if (fl_count == 11'd0) begin
