@@ -25,6 +25,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <cmath>
 #include <deque>
 #include <string>
 #include <vector>
@@ -40,7 +41,9 @@ namespace H = sweeplsd_hls;
 
 namespace {
 
-int g_hblank = 280, g_ing = 2, g_proc = 15, g_scav = 0, g_depth = 2048;
+int g_hblank = 280, g_depth = 2048;
+double g_ing = 2, g_proc = 15, g_scav = 0;  // fractional so measured cy/interior
+                                            // can be hit exactly (see fifo_dropsim)
 int g_edge_border = 3;  // outer px zeroed at the edge stage (border-ring fix); 0 = pre-fix
 bool g_half = false;
 std::string g_out = ".";
@@ -185,8 +188,9 @@ void process(const std::string& path, const Params& p) {
     const long afull = g_depth - 8;
     auto cost = [&](const Ev& e) -> long {
         if (e.kind == H::kEventEndOfRow)
-            return g_ing + ((e.y >= 1 && e.y - 1 < Hh) ? long(g_proc) * interior_row[e.y - 1] + g_scav : 0);
-        return g_ing;
+            return std::llround(g_ing) + ((e.y >= 1 && e.y - 1 < Hh)
+                       ? std::llround(g_proc * interior_row[e.y - 1] + g_scav) : 0);
+        return std::llround(g_ing);
     };
     std::deque<int> fifo;
     long be_free = 0;
@@ -284,11 +288,12 @@ int main(int argc, char** argv) {
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
         auto nx = [&]() { return std::atoi(argv[++i]); };
+        auto nxf = [&]() { return std::atof(argv[++i]); };
         if (a == "--out" && i + 1 < argc) { g_out = argv[++i]; continue; }
         if (a == "--hblank") { g_hblank = nx(); continue; }
-        if (a == "--ing") { g_ing = nx(); continue; }
-        if (a == "--proc") { g_proc = nx(); continue; }
-        if (a == "--scav") { g_scav = nx(); continue; }
+        if (a == "--ing") { g_ing = nxf(); continue; }
+        if (a == "--proc") { g_proc = nxf(); continue; }
+        if (a == "--scav") { g_scav = nxf(); continue; }
         if (a == "--depth") { g_depth = nx(); continue; }
         if (a == "--edge-border") { g_edge_border = nx(); continue; }
         if (a == "--half") { g_half = true; continue; }
