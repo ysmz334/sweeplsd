@@ -796,6 +796,11 @@ module backend #(
 
                 if (grem == 4'd0) begin
                     // all present neighbours processed -> resolve
+                    // (terminal-resolve fusion: the fold and the last GATH1 now
+                    // resolve in place, so this branch fires only at gi==0 with
+                    // NO present neighbours => in practice only the create /
+                    // label-exhaustion path below runs. The adopt/merge arms
+                    // are kept verbatim as a defensive fallback.)
                     if (label0 == 10'd0) begin
                         if (fl_count == 11'd0) begin
                             // label pool exhausted (pathological density):
@@ -825,26 +830,52 @@ module backend #(
                     end
                 end else if (gselbit == 4'b0001 &&
                              prev_x_v && prev_x == px - 11'd1) begin
-                    // (W fast-path) The W neighbour's label is the carry
-                    // register w_sav, and w_sav is provably a ROOT: `center` is
-                    // only ever set from a find result / fresh label / merge
-                    // survivor (all roots) and `w_sav <= center`; single-hop
-                    // path-compression never rewrites conn[root], and no merge
-                    // runs between the previous pixel's accumulate and this
-                    // gather. So find(w_sav) would return w_sav immediately.
-                    // Fold w_sav into label0/label1 exactly as S_GATH1's root
-                    // branch does (no compression write: find_first would be 0),
-                    // skipping the 2-cycle S_GWAIT/S_GATH1 read. Gated on the
+                    // (W fast-path, terminal) The W neighbour's label is the
+                    // carry register w_sav, and w_sav is provably a ROOT:
+                    // `center` is only ever set from a find result / fresh
+                    // label / merge survivor (all roots) and `w_sav <= center`;
+                    // single-hop path-compression never rewrites conn[root],
+                    // and no merge runs between the previous pixel's accumulate
+                    // and this gather. So find(w_sav) would return w_sav
+                    // immediately — fold it without a find. Gated on the
                     // run-continuation (prev_x == px-1) so w_sav definitely
                     // belongs to px-1 even in the label-exhaustion skip path,
                     // where prev_x is intentionally left stale (gcand == w_sav
-                    // whenever gselbit selects W). Records stay bit-exact.
-                    if (label0 == 10'd0)
-                        label0 <= w_sav;
-                    else if (w_sav != label0 && label1 == 10'd0)
-                        label1 <= w_sav;
-                    pdone <= pdone | 4'b0001;
-                    state <= S_GATH0;
+                    // whenever gselbit selects W).
+                    // gselbit==0001 inside grem!=0 implies grem==0001 (W is the
+                    // lowest priority), so this fold always COMPLETES the
+                    // gather: resolve here instead of spending one more S_GATH0
+                    // pass on an already-decided outcome (the old exit pass
+                    // cost 1 cy per fold, ~114k cy/frame on dense images). The
+                    // branches below see exactly the label0/label1 the old
+                    // fold+exit pair would have produced (the label0/label1 reg
+                    // updates themselves are dead — reset at the next fetch —
+                    // and omitted). Records stay bit-exact.
+                    if (label0 == 10'd0) begin
+                        // w_sav is the only root: run continuation by
+                        // construction (adjacent, and label0' == w_sav).
+                        center <= w_sav;
+                        state <= S_ACC;
+                    end else if (label1 == 10'd0 && w_sav != label0) begin
+                        // second distinct root: merge (label0, w_sav)
+                        m_l0 <= label0;
+                        m_l1 <= w_sav;
+                        l_ra <= label0;
+                        state <= S_MRDA;
+                    end else if (label1 == 10'd0) begin
+                        // w_sav == label0: single root; adjacent, so this is
+                        // the run continuation (c_* mirrors t_*[w_sav]).
+                        center <= label0;
+                        state <= S_ACC;
+                    end else begin
+                        // two roots already collected; w_sav duplicates one of
+                        // them (a 3rd distinct root is impossible: W/NW/N share
+                        // a root whenever present together) — merge as-is.
+                        m_l0 <= label0;
+                        m_l1 <= label1;
+                        l_ra <= label0;
+                        state <= S_MRDA;
+                    end
                 end else begin
                     // launch the find for the highest-priority present neighbour
                     // still to process; mark it done so the next dispatch skips it
@@ -865,11 +896,56 @@ module backend #(
                         conn_wa <= find_first;
                         conn_wd <= find_id;
                     end
-                    if (label0 == 10'd0)
-                        label0 <= find_id;
-                    else if (find_id != label0 && label1 == 10'd0)
-                        label1 <= find_id;
-                    state <= S_GATH0;
+                    if (grem != 4'd0) begin
+                        // more present neighbours to process (pdone was updated
+                        // at dispatch, so grem already excludes this find):
+                        // fold the root and go dispatch the next one.
+                        if (label0 == 10'd0)
+                            label0 <= find_id;
+                        else if (find_id != label0 && label1 == 10'd0)
+                            label1 <= find_id;
+                        state <= S_GATH0;
+                    end else begin
+                        // (terminal resolve) this was the last neighbour: fold
+                        // find_id combinationally and resolve NOW, absorbing
+                        // the old S_GATH0 exit pass (1 cy per find-terminated
+                        // pixel). find_id != 0 (roots are non-zero labels), so
+                        // the create path is unreachable here — it stays at the
+                        // gi==0 resolve for pixels with no present neighbours.
+                        if (label0 == 10'd0) begin
+                            // single root find_id
+                            center <= find_id;
+                            if (prev_x_v && prev_x == px - 11'd1 &&
+                                find_id == w_sav) begin
+                                state <= S_ACC;          // run continuation
+                            end else begin
+                                l_ra <= find_id;
+                                state <= S_ARD;          // adopt
+                            end
+                        end else if (find_id != label0 && label1 == 10'd0) begin
+                            // second distinct root: merge (label0, find_id)
+                            m_l0 <= label0;
+                            m_l1 <= find_id;
+                            l_ra <= label0;
+                            state <= S_MRDA;
+                        end else if (label1 == 10'd0) begin
+                            // duplicate root (find_id == label0): single root
+                            center <= label0;
+                            if (prev_x_v && prev_x == px - 11'd1 &&
+                                label0 == w_sav) begin
+                                state <= S_ACC;          // run continuation
+                            end else begin
+                                l_ra <= label0;
+                                state <= S_ARD;          // adopt
+                            end
+                        end else begin
+                            // two roots already collected — merge as-is
+                            m_l0 <= label0;
+                            m_l1 <= label1;
+                            l_ra <= label0;
+                            state <= S_MRDA;
+                        end
+                    end
                 end else begin
                     if (find_first == 10'd0) find_first <= find_id;
                     find_id <= q_conn;

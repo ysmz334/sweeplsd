@@ -300,6 +300,29 @@ one frame +0.8 pt from benign burst-phase reshuffling). The added `via_fast` mux
 the `f_ra` address is off the FE critical path (re-confirm `synth_be` before a
 reflash).
 
+**GATHER terminal-resolve fusion (`backend.v`, throughput opt).** Every pixel
+used to end its gather with a dedicated `grem==0` `S_GATH0` pass whose only job
+was to look at `label0`/`label1` and pick create/adopt/merge/accumulate — but by
+then the outcome is already decided: the W fast-path fold is provably the LAST
+gather action (`gselbit==0001` inside `grem!=0` implies W is the only remaining
+neighbour), and at the last `S_GATH1` the in-flight find is already excluded
+from `grem` (pdone is updated at dispatch). Both terminal sites now compute the
+folded `label0'`/`label1'` combinationally and branch straight to
+`S_ACC`/`S_ARD`/`S_MRDA` (the create path stays at the `gi==0` resolve — a
+terminal fold/find implies a non-zero root, so create is unreachable there).
+The old exit pass costs 1 cycle per pixel except the no-neighbour pattern
+(whose `gi=0` already was the resolve), so the saving is `pixels − PAT0000`:
+measured GATHER **−192,306 cy on IMGP1077** (571,976 → 379,670) and **−112,373
+on IMGP1033** (384,035 → 271,662) — both matching the prediction exactly; net
+back-end −8.8 % / −7.8 % after ~2–3 k cy of judge-hold elasticity flows back
+into CONT/MEXEC. IMGP1077 2.137 M → **1.948 M cy (10.22 → 9.32 cy/interior)**,
+frame-budget share ~79 %. Overflow (RTL burst TB, depth 2048): IMGP1077 drops
+15,360 → **9,452 (−38 %)**, rows-with-drop 123 → 77. Bit-exact everywhere
+(small vectors + tb_sweep_core full chain + FullHD gates imp 2027 / base 2106 /
+1077 3030 / 1049 3384 / 1062 1713, CE_DIV 1 & 2). Timing: `synth_be` 80.47 MHz,
+0 failing endpoints, critical path unchanged (`u_judge/Mmult_mps_thr`) — the
+resolve mux rides the gather cycle without entering the critical path.
+
 **Judge = one shared sequential MAC.** The exact integer test
 `361·T² ≤ 441·R²` needs 9 wide products. Rather than the 79
 DSPs the HLS version spends (Artix-7 87 %), phase 2 schedules every product
