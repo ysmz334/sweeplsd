@@ -323,6 +323,49 @@ frame-budget share ~79 %. Overflow (RTL burst TB, depth 2048): IMGP1077 drops
 0 failing endpoints, critical path unchanged (`u_judge/Mmult_mps_thr`) — the
 resolve mux rides the gather cycle without entering the critical path.
 
+**FETCH folded into S_ACC/S_CONT (`backend.v`, throughput opt — the big one).**
+In the steady state the fetch state machine (S_RNEXT + S_RC2 on adjacent
+pixels, S_RNEXT + S_RB + S_RC on run starts) did no computation at all: it
+issued the three feature/row-buffer column addresses and burned the
+`addr@T→data@T+2` BRAM latency as explicit wait states. Those issues now ride
+the edges of states the pixel already pays for: `gi=0` keeps issuing the
+successor's LEFT column (`xl_q − 1`, now universal — `pxn`/`pstrongn` are
+always captured at `gi=0` from the still-valid `xl*_q`); `S_ACC` issues the
+successor's remaining column (right = pxn+1 for an ADJACENT successor, whose
+left+centre come from carries; centre = pxn for a NON-adjacent one) and stages
+the list read for the pixel after it (`hn2`); the first `S_CONT` cycle
+(`cfirst` flag) shifts the neighbour window — adjacent: left ⇐ this pixel's
+centre (row-y kind is K_INT by construction, NW ⇐ the pre-overwrite `nw_sav`
+carry), non-adjacent: left read fresh from fq/rowq, which deliver column pxn−1
+during that cycle for ANY resolve length (f_ra holds pxn−1 from `gi=0` through
+the `S_ACC` edge, so even the 1-cycle fold-direct path is covered); and the
+`S_CONT` exit branches straight to the successor's `S_GATH0` (adjacent) or
+through the new 1-cycle **`S_RX`** wait (non-adjacent — its centre column,
+addressed at `S_ACC`, is valid there; its right column, addressed at the exit,
+lands at `S_GATH0`). Two hazards and their fixes: (i) `touches_end` reads the
+window regs, which the shift overwrites, and judge-hold cycles re-evaluate it —
+so `S_ACC` registers it (**`te_r`**) on the old window; (ii) all issue points
+are hold-immune because f_ra/row_ra stay put through any judge-hold and the
+one-shot captures fire on the `cfirst` cycle only. The end-of-row branch (the
+scavenger setup that lived in S_RNEXT) moves to the `S_CONT` exit; S_RNEXT /
+S_RB / S_RC / S_RC2 and the 7-cycle row-start path are kept verbatim as the
+row-entry and label-exhaustion fallback (the fallback re-entry re-establishes
+every steady-state invariant, so the flows compose). Fetch cost per pixel:
+adjacent 2 → **0** cycles, non-adjacent 3 → **1** (the S_RX wait is the true
+port floor: three columns through one read port at 2-cycle latency needs one
+un-hidden slot). Measured, matching the port-schedule prediction exactly:
+IMGP1077 FETCH 517,194 → **100,127 cy**, back-end 1.948 M → **1.543 M cy (9.32
+→ 7.38 cy/interior)**, frame-budget share 79 % → **62 %**; IMGP1033 FETCH
+329,949 → 86,592, back-end 1.305 M → 1.067 M (8.73 cy/interior); IMGP1049
+2.087 M → 1.745 M; IMGP1062 1.374 M → 1.091 M. Session cumulative (terminal
+resolve + fetch fold): IMGP1077 2.137 M → 1.543 M = **−27.8 %**. **Overflow
+(RTL burst TB, depth 2048): IMGP1077 — the worst frame of the corpus, 15,360
+dropped events at the session start — now drops NOTHING (peak occupancy
+530/2048, all 3030 records emitted).** Bit-exact everywhere (small vectors +
+tb_sweep_core full chain + FullHD gates imp 2027 / base 2106 / 1077 3030 /
+1049 3384 / 1062 1713, CE_DIV 1 & 2). Timing: `synth_be` 81.34 MHz, 0 failing
+endpoints, critical path unchanged (judge DSP).
+
 **Judge = one shared sequential MAC.** The exact integer test
 `361·T² ≤ 441·R²` needs 9 wide products. Rather than the 79
 DSPs the HLS version spends (Artix-7 87 %), phase 2 schedules every product
@@ -398,10 +441,18 @@ the hardware never has. A cycle-accurate RTL burst testbench measured the truth:
 So single-engine overflow on the LX45 is a **minor, dense-frame-localised** effect
 (~15 frames), not the corpus-wide problem the co-sim implied — the earlier "needs
 stripe parallelism for zero-drop" framing was driven by the over-pessimistic
-model. The `S_RB`-bubble removal (above) took the corpus from 4.83 % to 3.99 %;
-the residual is chipped into by further drain speed-ups or a modest FIFO deepening
-(the many frames that peak at exactly the 2040 afull threshold with small loss are
-the ones a deeper FIFO would rescue).
+model. The `S_RB`-bubble removal (above) took the corpus from 4.83 % to 3.99 %.
+
+**After the terminal-resolve fusion + the S_ACC/S_CONT fetch fold (above), the
+RTL burst sim over all 150 frames reads: corpus segment loss 0.215 % (477 /
+222,263), 148/150 frames completely lossless.** Only IMGP1032 (15.5 %, 5,592
+dropped events) and IMGP1007 (the densest frame of the corpus — 2.1 %) still
+touch the 2040 afull threshold; the third-highest FIFO peak in the corpus is
+972 (< half the depth). The per-row burst-band analysis that motivated the two
+levers (drain cy/row vs the 2200-cycle row budget, backlog integral validated
+against a drop-proof-FIFO run to 1.6 %) predicted the densest frame's backlog
+would shrink from ~19 k events to under the FIFO depth — confirmed: IMGP1077,
+the worst live-demo frame, now drops nothing (peak 530/2048).
 
 ## Overlay (demo path, outside the verified core)
 

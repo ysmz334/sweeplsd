@@ -147,8 +147,9 @@ module tb_backend_prof;
             g_ingest   = st_hist[1] + st_hist[2];                       // POP,EV
             g_rowsetup = st_hist[3];                                    // ROW0
             g_fetch    = st_hist[4]+st_hist[5]+st_hist[6]+st_hist[7]+
-                         st_hist[8]+st_hist[9]+st_hist[25]+st_hist[26]+
-                         st_hist[27]; // RNEXT,RW,RCAP,RD1-3,RB,RC,RC2(fast-path wait)
+                         st_hist[8]+st_hist[9]+st_hist[23]+st_hist[25]+
+                         st_hist[26]+st_hist[27];
+                         // RNEXT,RW,RCAP,RD1-3,RX(c),RB,RC,RC2(fast-path wait)
             g_gather   = st_hist[10]+st_hist[11]+st_hist[12];           // GATH0,GWAIT,GATH1
             g_create   = st_hist[13]+st_hist[14];                       // CWAIT,CREATE
             g_adopt    = st_hist[19]+st_hist[20];                       // ARD,ACAP

@@ -337,6 +337,17 @@ module backend #(
     reg        via_fast;               // this pixel took the RB-skip fast path
                                        //   (pxn captured at S_GATH0, not S_RC)
     reg        first_pix;              // no prefetch available yet
+    // (c) fetch folded into S_ACC/S_CONT (steady state bypasses S_RNEXT):
+    reg        hn2;                    // staged hn for the NEXT pixel (set at
+                                       //   S_ACC when its list entry is issued;
+                                       //   promoted to hn at the S_CONT exit)
+    reg        te_r;                   // touches_end REGISTERED at S_ACC on the
+                                       //   OLD window (the window shifts to the
+                                       //   next pixel at the first S_CONT cycle,
+                                       //   so S_CONT must not sample the wire)
+    reg        cfirst;                 // first S_CONT cycle (window shift /
+                                       //   left-column capture fires once, and
+                                       //   judge-hold cycles must not re-fire it)
 
     localparam [5:0]
         S_INIT   = 6'd0,
@@ -362,7 +373,9 @@ module backend #(
         S_ACAP   = 6'd20,
         S_ACC    = 6'd21,
         S_CONT   = 6'd22,
-        S_JWAIT  = 6'd23,   // retired (non-blocking judge); code kept unused
+        S_RX     = 6'd23,   // (c) steady-state fetch: 1-cy centre-column wait
+                            //   for a NON-adjacent successor (was S_JWAIT,
+                            //   retired with the non-blocking judge)
         S_SCAVP  = 6'd24,   // II=1 pipelined scavenger (v2b backend opt 2)
         S_RB     = 6'd25,   // short fetch path (prefetch overlap), wait
         S_RC     = 6'd26,   // short fetch path, centre-column capture
@@ -777,19 +790,21 @@ module backend #(
                     n_bR <= fcap(b_next, py_p1, px + 11'd1 < width[10:0]);
                     rq_tag_p1 <= (px + 11'd1 < width[10:0]) ? rowq_tag : TAG_NONE;
                     rq_lab_p1 <= rowq_lab;
-                    if (hn) begin        // prefetch the next pixel's left column
-                        if (via_fast) begin
-                            // The RB-skip fast path has no S_RC, so pxn/pstrongn
-                            // are captured here instead; xl*_q is valid now (set in
-                            // S_RNEXT, addr@T -> data@T+2 == this S_GATH0 cycle).
-                            pxn <= py[0] ? xl1_q : xl0_q;
-                            pstrongn <= py[0] ? xs1_q : xs0_q;
-                            f_ra <= (py[0] ? xl1_q : xl0_q) - 11'd1;
-                            row_ra <= (py[0] ? xl1_q : xl0_q) - 11'd1;
-                        end else begin   // normal/long: pxn already captured (S_RC/S_RD2)
-                            f_ra <= pxn - 11'd1;   // column; fq/rowq then hold it
-                            row_ra <= pxn - 11'd1; // untouched through the resolve
-                        end
+                    if (hn) begin
+                        // (c) capture the next list entry and prefetch its left
+                        // column — UNIVERSAL now: xl*_q is always valid here (the
+                        // read is issued at the previous pixel's S_ACC in the
+                        // steady state, at S_RCAP for the row's first pixel, and
+                        // at S_RNEXT on the fallback paths; each is >=2 cycles
+                        // before this S_GATH0). f_ra/row_ra then hold pxn-1
+                        // through the resolve AND through S_ACC (the S_ACC issue
+                        // lands one cycle later), so the first S_CONT cycle sees
+                        // fq/rowq == column pxn-1 for ANY resolve length, incl.
+                        // the 1-cycle fold-direct path.
+                        pxn <= py[0] ? xl1_q : xl0_q;
+                        pstrongn <= py[0] ? xs1_q : xs0_q;
+                        f_ra <= (py[0] ? xl1_q : xl0_q) - 11'd1;
+                        row_ra <= (py[0] ? xl1_q : xl0_q) - 11'd1;
                     end
                     gi <= 3'd1;
                 end
@@ -1124,15 +1139,82 @@ module backend #(
                 w_sav <= center;
                 prev_x <= px;
                 prev_x_v <= 1'b1;
+                // ---- (c) next-pixel fetch riding the accumulate cycle ----
+                // te_r samples the END-contact test on the CURRENT window (the
+                // window shifts to the successor at the first S_CONT cycle, so
+                // S_CONT reads this register, not the wire).
+                te_r <= touches_end;
+                cfirst <= 1'b1;
+                if (hn) begin
+                    // issue the successor's remaining column: an ADJACENT
+                    // successor already has left (carry) + centre (this pixel's
+                    // right column, carried at S_CONT) => issue its right
+                    // column (pxn+1) now so it is combinationally valid at its
+                    // S_GATH0 (= S_CONT exit + 1, hold-immune: f_ra then stays
+                    // put through any judge-hold). A NON-adjacent successor
+                    // needs a fresh centre column (pxn) first; its right column
+                    // is issued at the S_CONT exit and lands at S_GATH0 via the
+                    // 1-cycle S_RX wait. Either way fq/rowq still DELIVER
+                    // column pxn-1 during the first S_CONT cycle (this edge's
+                    // read was addressed at S_GATH0 gi=0).
+                    f_ra <= (pxn == px + 11'd1) ? pxn + 11'd1 : pxn;
+                    row_ra <= (pxn == px + 11'd1) ? pxn + 11'd1 : pxn;
+                end
+                // stage the list read for the pixel AFTER the successor
+                if (hn && xi != row_cnt) begin
+                    xl_ra <= xi[10:0];
+                    xi <= xi + 12'd1;
+                    hn2 <= 1'b1;
+                end else hn2 <= 1'b0;
                 state <= S_CONT;
             end
 
             S_CONT: begin
                 // (px <= pxn only on the EXIT branches: the judge-occupied
                 // hold must keep px intact for the request payload)
-                if (touches_end) begin
-                    if (c_has) begin
-                        if (jfree) begin
+                //
+                // (c) FIRST cycle only: shift the neighbour window to the
+                // successor. fq/rowq deliver column pxn-1 exactly now (the
+                // read was addressed at S_GATH0 gi=0 and the S_ACC re-issue
+                // lands one cycle later), so this must not re-fire on
+                // judge-hold cycles — hence cfirst. An ADJACENT successor
+                // takes carries: its left column is this pixel's centre
+                // column (n_aC/n_bC; the row-y kind is K_INT by construction
+                // — this pixel came off the interior list), and its NW row
+                // cell is the pre-overwrite nw_sav (row_lab[px] was just
+                // rewritten by S_ACC — the single-row-buffer trick). A
+                // NON-adjacent successor reads its left column fresh
+                // (pxn-1 > px, so nothing this row has overwritten it).
+                if (cfirst) begin
+                    if (hn) begin
+                        if (pxn == px + 11'd1) begin
+                            n_aL <= n_aC;
+                            n_cL <= K_INT;
+                            n_bL <= n_bC;
+                            rq_tag_m1 <= nw_tag_sav;
+                            rq_lab_m1 <= nw_lab_sav;
+                            n_aC <= n_aR;
+                            n_bC <= n_bR;
+                            rq_tag_0 <= rq_tag_p1;
+                            rq_lab_0 <= rq_lab_p1;
+                            nw_tag_sav <= rq_tag_p1;
+                            nw_lab_sav <= rq_lab_p1;
+                        end else begin
+                            n_aL <= fcap(b_prev, py_m1, pxn != 11'd0 && !row0);
+                            n_cL <= fcap(b_cur, py, pxn != 11'd0);
+                            n_bL <= fcap(b_next, py_p1, pxn != 11'd0);
+                            rq_tag_m1 <= (pxn != 11'd0) ? rowq_tag : TAG_NONE;
+                            rq_lab_m1 <= rowq_lab;
+                        end
+                    end
+                    cfirst <= 1'b0;
+                end
+                if (te_r && c_has && !jfree) begin
+                    // judge occupied — hold here (inputs stable; te_r is the
+                    // registered END-contact test, immune to the window shift)
+                end else begin
+                    if (te_r) begin
+                        if (c_has) begin
                             j_n <= c_n; j_xs <= c_xs; j_ys <= c_ys;
                             j_xss <= c_xss; j_yss <= c_yss; j_xys <= c_xys;
                             f_n <= c_n; f_xs <= c_xs; f_ys <= c_ys;
@@ -1148,26 +1230,63 @@ module backend #(
                             f_maxy <= py[10:0]; f_maxy_x <= c_myx;
                             j_start <= 1'b1;
                             jf_inflight <= 1'b1;
-                            px <= pxn; pstrong <= pstrongn;
-                            state <= S_RNEXT;
+                        end else begin
+                            cold_we <= 1'b1;
+                            cold_wa <= center;
+                            cold_whas <= 1'b1;
+                            cold_wsx <= px;
+                            cold_wsy <= py[10:0];
+                            c_has <= 1'b1;             // mirror t_* (fast path)
+                            c_sx <= px;
+                            c_sy <= py[10:0];
                         end
-                        // else: judge occupied — hold here (inputs stable)
-                    end else begin
-                        cold_we <= 1'b1;
-                        cold_wa <= center;
-                        cold_whas <= 1'b1;
-                        cold_wsx <= px;
-                        cold_wsy <= py[10:0];
-                        c_has <= 1'b1;             // mirror t_* (fast path)
-                        c_sx <= px;
-                        c_sy <= py[10:0];
-                        px <= pxn; pstrong <= pstrongn;
-                        state <= S_RNEXT;
                     end
-                end else begin
+                    // ---- (c) common exit: straight to the successor's gather
+                    // (adjacent: right column already in flight from S_ACC;
+                    // non-adjacent: issue it now and take the 1-cycle S_RX wait
+                    // for the centre column addressed at S_ACC), or wrap up the
+                    // row (the scavenger setup that used to live in S_RNEXT).
                     px <= pxn; pstrong <= pstrongn;
-                    state <= S_RNEXT;
+                    if (hn) begin
+                        hn <= hn2;
+                        gi <= 3'd0;
+                        pdone <= 4'd0;
+                        label0 <= 10'd0;
+                        label1 <= 10'd0;
+                        if (pxn == px + 11'd1) begin
+                            state <= S_GATH0;
+                        end else begin
+                            f_ra <= pxn + 11'd1;
+                            row_ra <= pxn + 11'd1;
+                            state <= S_RX;
+                        end
+                    end else begin
+                        if (py >= 13'd2) begin
+                            si <= 11'd0;
+                            sv1 <= 1'b0; sv2 <= 1'b0; sv3 <= 1'b0; sv4 <= 1'b0;
+                            scav_row_chk <= py[10:0] - 11'd2;
+                            tl_scan <= (tl_cur == 2'd2) ? 2'd0 : tl_cur + 2'd1;
+                            state <= S_SCAVP;
+                        end else begin
+                            state <= S_ROWEND;
+                        end
+                    end
                 end
+            end
+
+            // (c) 1-cycle wait for a NON-adjacent successor: the centre column
+            // (pxn) was addressed at S_ACC and is valid now; the right column
+            // (pxn+1) was addressed at the S_CONT exit and lands at S_GATH0.
+            // == the old S_RC captures minus pxn/pstrongn (now taken at gi=0)
+            // and the gi/pdone/label resets (done at the S_CONT exit).
+            S_RX: begin
+                n_aC <= fcap(b_prev, py_m1, !row0);
+                n_bC <= fcap(b_next, py_p1, 1'b1);
+                rq_tag_0 <= rowq_tag;
+                rq_lab_0 <= rowq_lab;
+                nw_tag_sav <= rowq_tag;
+                nw_lab_sav <= rowq_lab;
+                state <= S_GATH0;
             end
 
             // ---- scavenger: free labels whose last activity row is py-2 ----
