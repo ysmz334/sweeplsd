@@ -30,6 +30,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <deque>
@@ -48,9 +49,12 @@ namespace H = sweeplsd_hls;
 namespace {
 
 int g_hblank = 280;      // 1080p30 horizontal blanking clocks / line
-int g_ing = 2;           // clocks to pop+ingest one data event
-int g_proc = 15;         // clocks to process one interior pixel (per-pixel burst)
-int g_scav = 0;          // extra clocks per processed row (scavenger); 0 = fold into proc
+double g_ing = 2;        // clocks to pop+ingest one data event (fractional OK:
+                         //   POP+EV fuse makes this 1)
+double g_proc = 15;      // clocks to process one interior pixel (per-pixel burst;
+                         //   fractional so the measured cy/interior can be hit
+                         //   exactly, e.g. gather/judge/W-fastpath opts)
+double g_scav = 0;       // extra clocks per processed row (scavenger); 0 = fold into proc
 int g_depth = 2048;      // FIFO depth; data dropped at occupancy >= depth-8
 int g_edge_border = 3;   // outer px zeroed at the edge stage (border-ring fix); 0 = pre-fix
 
@@ -147,11 +151,11 @@ Result simulate(const std::string& name, const GrayImage& src, const Params& p) 
     auto cost = [&](const Ev& e) -> long {
         if (e.kind == H::kEventEndOfRow) {
             // popping this marker triggers processRow(e.y - 1) in the back-end
-            long burst = (e.y >= 1 && e.y - 1 < Hh) ? long(g_proc) * interior_row[e.y - 1] + g_scav : 0;
-            return g_ing + burst;
+            long burst = (e.y >= 1 && e.y - 1 < Hh)
+                ? std::llround(g_proc * interior_row[e.y - 1] + g_scav) : 0;
+            return std::llround(g_ing) + burst;
         }
-        if (e.kind == H::kEventEndOfFrame) return g_ing;
-        return g_ing;  // data event
+        return std::llround(g_ing);  // data event / EOF
     };
 
     std::deque<int> fifo;
@@ -216,10 +220,11 @@ int main(int argc, char** argv) {
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
         auto next = [&]() { return std::atoi(argv[++i]); };
+        auto nextf = [&]() { return std::atof(argv[++i]); };
         if (a == "--hblank") { g_hblank = next(); continue; }
-        if (a == "--ing") { g_ing = next(); continue; }
-        if (a == "--proc") { g_proc = next(); continue; }
-        if (a == "--scav") { g_scav = next(); continue; }
+        if (a == "--ing") { g_ing = nextf(); continue; }
+        if (a == "--proc") { g_proc = nextf(); continue; }
+        if (a == "--scav") { g_scav = nextf(); continue; }
         if (a == "--depth") { g_depth = next(); continue; }
         if (a == "--edge-border") { g_edge_border = next(); continue; }
         if (a == "--csv" && i + 1 < argc) { csv_path = argv[++i]; continue; }
@@ -242,7 +247,7 @@ int main(int argc, char** argv) {
                           "peak_occ,rows_with_drop,first_drop_row,last_drop_row,max_row_drop,"
                           "seg_full,seg_drop,seg_lost,seg_lost_pct\n");
 
-    std::printf("# FIFO drop co-sim (1080p30, hblank=%d, ING=%d PROC=%d SCAV=%d depth=%d "
+    std::printf("# FIFO drop co-sim (1080p30, hblank=%d, ING=%g PROC=%g SCAV=%g depth=%d "
                 "edge_border=%d)\n", g_hblank, g_ing, g_proc, g_scav, g_depth, g_edge_border);
     std::printf("%-16s %7s %6s %6s %7s %6s  %8s %8s %8s  %5s\n", "name", "data", "dInt",
                 "dEnd", "drop%", "peak", "segFull", "segDrop", "lost", "lost%");
