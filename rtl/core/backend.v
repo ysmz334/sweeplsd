@@ -191,44 +191,58 @@ module backend #(
     always @(posedge clk) if (en && rt_we) row_tag[rt_wa] <= rt_wd;
 
     // ---- feature rows: 3 tag-validated banks ------------------------------------
+    // (c2) FOUR banks: while the labeller reads rows py-1/py/py+1 the
+    // concurrent ingest engine writes row py+2 into the fourth (banks are
+    // row mod 4, plain 2-bit wrap).
     reg [12:0] f_tag0 [0:2047];  reg [1:0] f_kind0 [0:2047];
     reg [12:0] f_tag1 [0:2047];  reg [1:0] f_kind1 [0:2047];
     reg [12:0] f_tag2 [0:2047];  reg [1:0] f_kind2 [0:2047];
+    reg [12:0] f_tag3 [0:2047];  reg [1:0] f_kind3 [0:2047];
     reg [10:0] f_ra;
-    reg [12:0] fq_tag0, fq_tag1, fq_tag2;
-    reg [1:0]  fq_kind0, fq_kind1, fq_kind2;
+    reg [12:0] fq_tag0, fq_tag1, fq_tag2, fq_tag3;
+    reg [1:0]  fq_kind0, fq_kind1, fq_kind2, fq_kind3;
     always @(posedge clk) begin
         if (en) begin
             fq_tag0 <= f_tag0[f_ra];  fq_kind0 <= f_kind0[f_ra];
             fq_tag1 <= f_tag1[f_ra];  fq_kind1 <= f_kind1[f_ra];
             fq_tag2 <= f_tag2[f_ra];  fq_kind2 <= f_kind2[f_ra];
+            fq_tag3 <= f_tag3[f_ra];  fq_kind3 <= f_kind3[f_ra];
         end
     end
     reg        ftag_we;                  // init sweep / event ingest (funnelled)
-    reg [2:0]  ftag_wb;                  // bank mask (broadcast on init)
+    reg [3:0]  ftag_wb;                  // bank mask (broadcast on init)
     reg [10:0] ftag_wa;
     reg [12:0] ftag_wd;
     always @(posedge clk) begin
         if (en && ftag_we && ftag_wb[0]) f_tag0[ftag_wa] <= ftag_wd;
         if (en && ftag_we && ftag_wb[1]) f_tag1[ftag_wa] <= ftag_wd;
         if (en && ftag_we && ftag_wb[2]) f_tag2[ftag_wa] <= ftag_wd;
+        if (en && ftag_we && ftag_wb[3]) f_tag3[ftag_wa] <= ftag_wd;
     end
 
-    // ---- interior-x lists (ping-pong) --------------------------------------------
+    // ---- interior-x lists ----------------------------------------------------------
+    // (c2) THREE banks (row mod 3): the labeller reads row py's list while
+    // row py+1's list sits complete and the ingest engine writes row py+2's
+    // (mod-3 keeps all three distinct; parity was enough only when ingest
+    // and labelling were serialised).
     reg [10:0] xl0 [0:2047];
     reg [10:0] xl1 [0:2047];
+    reg [10:0] xl2 [0:2047];
     reg        xs0 [0:2047];   // (d) strong bit per interior x, parallel to xl*
     reg        xs1 [0:2047];
-    reg [11:0] xcnt0, xcnt1;
+    reg        xs2 [0:2047];
+    reg [11:0] xcnt0, xcnt1, xcnt2;
     reg [10:0] xl_ra;
-    reg [10:0] xl0_q, xl1_q;
-    reg        xs0_q, xs1_q;
+    reg [10:0] xl0_q, xl1_q, xl2_q;
+    reg        xs0_q, xs1_q, xs2_q;
     always @(posedge clk) begin
         if (en) begin
             xl0_q <= xl0[xl_ra];
             xl1_q <= xl1[xl_ra];
+            xl2_q <= xl2[xl_ra];
             xs0_q <= xs0[xl_ra];
             xs1_q <= xs1[xl_ra];
+            xs2_q <= xs2[xl_ra];
         end
     end
 
@@ -280,8 +294,15 @@ module backend #(
     wire        jfree = !jf_inflight && !j_start;
 
     // ---- frame / row bookkeeping -------------------------------------------------------
-    reg [12:0] ingest_y;
-    reg [1:0]  ing_b;                  // feature bank receiving the ingest row
+    // (c2) ingest side (owned by the concurrent ingest engine):
+    reg [12:0] ingest_y;               // row being ingested == rows completed
+    reg [1:0]  ing_b;                  // feature bank receiving the ingest row (mod 4)
+    reg [1:0]  ing_l;                  // interior-list bank of the ingest row (mod 3)
+    reg        eof_seen;               // EOF marker consumed
+    // processing side:
+    reg [12:0] proc_y;                 // row to process next (== py while processing)
+    reg [1:0]  proc_b;                 // feature bank of row proc_y (mod 4)
+    reg [1:0]  proc_l;                 // interior-list bank of row proc_y (mod 3)
     reg        eof_row;
     reg [12:0] py;                     // row being processed
     reg [1:0]  b_prev, b_cur, b_next;
@@ -396,7 +417,15 @@ module backend #(
     // double-apply it. The consumer (event_fifo / tb) gates the pop with `en`,
     // and the whole FSM only advances on `en`, so exactly one event is
     // consumed per en-cycle spent in S_POP.
-    assign ev_pop = (state == S_POP) && !ev_empty;
+    // (c2) concurrent ingest: pop whenever an event is available and row
+    // ingest_y may be filed — allowed while ingest_y <= py+2 (its feature
+    // bank mod 4 and list bank mod 3 are then disjoint from everything the
+    // labeller reads; the labeller lags: it only starts row proc_y once
+    // ingest_y >= proc_y+2). Gated off during S_INIT (the tag-invalidate
+    // sweep owns the ftag funnel) and after EOF.
+    wire ing_pop = (state != S_INIT) && !eof_seen && !ev_empty &&
+                   (ingest_y <= proc_y + 13'd2);
+    assign ev_pop = ing_pop;
 
     wire [12:0] py_m1 = py - 13'd1;
     wire [12:0] py_p1 = py + 13'd1;
@@ -457,18 +486,27 @@ module backend #(
     // number of entries in the scanned touched-list generation
     wire [NLW:0] scan_cnt = (tl_scan == 2'd0) ? tcnt0 :
                             (tl_scan == 2'd1) ? tcnt1 : tcnt2;
-    // interior count of the processed row
-    wire [11:0] row_cnt = py[0] ? xcnt1 : xcnt0;
+    // interior count / list read of the processed row (bank = row mod 3)
+    wire [11:0] row_cnt = (proc_l == 2'd0) ? xcnt0 :
+                          (proc_l == 2'd1) ? xcnt1 : xcnt2;
+    wire [10:0] xlq_sel = (proc_l == 2'd0) ? xl0_q :
+                          (proc_l == 2'd1) ? xl1_q : xl2_q;
+    wire        xsq_sel = (proc_l == 2'd0) ? xs0_q :
+                          (proc_l == 2'd1) ? xs1_q : xs2_q;
 
     // feature bank capture helpers (combinational per current read regs)
-    wire [1:0] fk_of_bank0 = fq_kind0, fk_of_bank1 = fq_kind1, fk_of_bank2 = fq_kind2;
-    wire [12:0] ft_of_bank0 = fq_tag0, ft_of_bank1 = fq_tag1, ft_of_bank2 = fq_tag2;
+    wire [1:0] fk_of_bank0 = fq_kind0, fk_of_bank1 = fq_kind1,
+               fk_of_bank2 = fq_kind2, fk_of_bank3 = fq_kind3;
+    wire [12:0] ft_of_bank0 = fq_tag0, ft_of_bank1 = fq_tag1,
+                ft_of_bank2 = fq_tag2, ft_of_bank3 = fq_tag3;
     function [1:0] fcap(input [1:0] bank, input [12:0] want_tag, input valid);
         reg [12:0] t;
         reg [1:0] k;
         begin
-            t = (bank == 2'd0) ? ft_of_bank0 : (bank == 2'd1) ? ft_of_bank1 : ft_of_bank2;
-            k = (bank == 2'd0) ? fk_of_bank0 : (bank == 2'd1) ? fk_of_bank1 : fk_of_bank2;
+            t = (bank == 2'd0) ? ft_of_bank0 : (bank == 2'd1) ? ft_of_bank1 :
+                (bank == 2'd2) ? ft_of_bank2 : ft_of_bank3;
+            k = (bank == 2'd0) ? fk_of_bank0 : (bank == 2'd1) ? fk_of_bank1 :
+                (bank == 2'd2) ? fk_of_bank2 : fk_of_bank3;
             fcap = (valid && t == want_tag) ? k : 2'd0;
         end
     endfunction
@@ -502,9 +540,11 @@ module backend #(
     // to the fcap form.
     wire        ne_valid = (px + 11'd1 < width[10:0]) && !row0;
     wire [12:0] ne_tag  = (b_prev == 2'd0) ? ft_of_bank0 :
-                          (b_prev == 2'd1) ? ft_of_bank1 : ft_of_bank2;
+                          (b_prev == 2'd1) ? ft_of_bank1 :
+                          (b_prev == 2'd2) ? ft_of_bank2 : ft_of_bank3;
     wire [1:0]  ne_kind = (b_prev == 2'd0) ? fk_of_bank0 :
-                          (b_prev == 2'd1) ? fk_of_bank1 : fk_of_bank2;
+                          (b_prev == 2'd1) ? fk_of_bank1 :
+                          (b_prev == 2'd2) ? fk_of_bank2 : fk_of_bank3;
     wire [1:0]  naR_g0  = (ne_valid && ne_tag == py_m1) ? ne_kind : 2'd0;
     wire [1:0] naR_eff = (gi == 3'd0) ? naR_g0 : n_aR;
     wire [NLW-1:0] rqlab_p1_eff = (gi == 3'd0) ? rowq_lab : rq_lab_p1;
@@ -535,7 +575,7 @@ module backend #(
                 rt_wa <= init_a[10:0];
                 rt_wd <= TAG_NONE;
                 ftag_we <= 1'b1;
-                ftag_wb <= 3'b111;
+                ftag_wb <= 4'b1111;
                 ftag_wa <= init_a[10:0];
                 ftag_wd <= TAG_NONE;
                 if (init_a < NL - 1) begin
@@ -549,8 +589,14 @@ module backend #(
                     fl_count <= 11'd1023;
                     ingest_y <= 13'd0;
                     ing_b <= 2'd0;
+                    ing_l <= 2'd0;
+                    eof_seen <= 1'b0;
+                    proc_y <= 13'd0;
+                    proc_b <= 2'd0;
+                    proc_l <= 2'd0;
                     xcnt0 <= 12'd0;
                     xcnt1 <= 12'd0;
+                    xcnt2 <= 12'd0;
                     tcnt0 <= 11'd0;
                     tcnt1 <= 11'd0;
                     tcnt2 <= 11'd0;
@@ -560,64 +606,40 @@ module backend #(
                 end
             end
 
-            // ---- event ingestion (POP+EV fused; see the ev_pop assign) ----
-            // The FWFT front is applied directly this cycle; state stays S_POP
-            // for data events so the next event is consumed on the next en edge.
-            S_POP: if (!ev_empty) begin
-                case (ev_kind)
-                    K_INT, K_END: begin
-                        ftag_we <= 1'b1;
-                        ftag_wb <= (ing_b == 2'd0) ? 3'b001 :
-                                   (ing_b == 2'd1) ? 3'b010 : 3'b100;
-                        ftag_wa <= ev_x[10:0];
-                        ftag_wd <= ingest_y;
-                        case (ing_b)
-                            2'd0: f_kind0[ev_x[10:0]] <= ev_kind;
-                            2'd1: f_kind1[ev_x[10:0]] <= ev_kind;
-                            default: f_kind2[ev_x[10:0]] <= ev_kind;
-                        endcase
-                        if (ev_kind == K_INT) begin
-                            if (ingest_y[0]) begin
-                                xl1[xcnt1[10:0]] <= ev_x[10:0];
-                                xs1[xcnt1[10:0]] <= ev_strong;
-                                xcnt1 <= xcnt1 + 12'd1;
-                            end else begin
-                                xl0[xcnt0[10:0]] <= ev_x[10:0];
-                                xs0[xcnt0[10:0]] <= ev_strong;
-                                xcnt0 <= xcnt0 + 12'd1;
-                            end
-                        end
+            // ---- wait for the next row's ingest to complete ----
+            // (c2) ingestion runs CONCURRENTLY in the engine below the case;
+            // this state only synchronises. Row proc_y may be labelled once
+            // its below-row proc_y+1 is complete (ingest_y counts completed
+            // rows), or once EOF says there is no below-row. The old 1 cy per
+            // event serial ingest tax is gone — cycles are spent here only
+            // when the labeller outruns the supply.
+            S_POP: begin
+                if (ingest_y >= proc_y + 13'd2) begin
+                    eof_row <= 1'b0;
+                    state <= S_ROW0;
+                end else if (eof_seen) begin
+                    if (ingest_y == proc_y + 13'd1) begin
+                        eof_row <= 1'b1;      // final row: no below-row exists
+                        state <= S_ROW0;
+                    end else begin
+                        state <= S_TERM;      // no rows left (incl. empty frame)
                     end
-                    K_EOR: begin
-                        if (ingest_y != 13'd0) begin
-                            eof_row <= 1'b0;
-                            state <= S_ROW0;
-                        end else begin
-                            ingest_y <= 13'd1;
-                            ing_b <= 2'd1;
-                        end
-                    end
-                    default: begin  // K_EOF
-                        if (ingest_y != 13'd0) begin
-                            eof_row <= 1'b1;
-                            state <= S_ROW0;
-                        end else begin
-                            state <= S_TERM;
-                        end
-                    end
-                endcase
+                end
             end
 
             // ---- row setup ----
             S_ROW0: begin
-                py <= ingest_y - 13'd1;
-                b_next <= ing_b;
-                b_cur <= (ing_b == 2'd0) ? 2'd2 : ing_b - 2'd1;
-                b_prev <= (ing_b == 2'd0) ? 2'd1 : (ing_b == 2'd1) ? 2'd2 : 2'd0;
+                // (c2) banks come from the PROCESSING row counter, decoupled
+                // from the ingest engine (which may already be a row ahead):
+                // feature bank = row mod 4, plain 2-bit wrap.
+                py <= proc_y;
+                b_next <= proc_b + 2'd1;
+                b_cur <= proc_b;
+                b_prev <= proc_b - 2'd1;
                 tl_cur <= first_row_done ?
                           ((tl_cur == 2'd2) ? 2'd0 : tl_cur + 2'd1) : 2'd0;
                 first_row_done <= 1'b1;
-                y_sq <= (ingest_y[10:0] - 11'd1) * (ingest_y[10:0] - 11'd1);
+                y_sq <= proc_y[10:0] * proc_y[10:0];
                 xi <= 12'd0;
                 prev_x_v <= 1'b0;
                 first_pix <= 1'b1;
@@ -710,10 +732,10 @@ module backend #(
             S_RW: state <= S_RCAP;      // xl*_q valid next cycle
 
             S_RCAP: begin
-                px <= py[0] ? xl1_q : xl0_q;
-                pstrong <= py[0] ? xs1_q : xs0_q;
-                f_ra <= (py[0] ? xl1_q : xl0_q) - 11'd1;
-                row_ra <= (py[0] ? xl1_q : xl0_q) - 11'd1;
+                px <= xlq_sel;
+                pstrong <= xsq_sel;
+                f_ra <= (xlq_sel) - 11'd1;
+                row_ra <= (xlq_sel) - 11'd1;
                 if (xi != row_cnt) begin
                     xl_ra <= xi[10:0];   // prefetch the next list entry
                     xi <= xi + 12'd1;
@@ -741,7 +763,7 @@ module backend #(
                 end
                 f_ra <= px + 11'd1;
                 row_ra <= px + 11'd1;
-                if (hn) begin pxn <= py[0] ? xl1_q : xl0_q; pstrongn <= py[0] ? xs1_q : xs0_q; end
+                if (hn) begin pxn <= xlq_sel; pstrongn <= xsq_sel; end
                 state <= S_RD3;
             end
 
@@ -764,8 +786,8 @@ module backend #(
                 nw_tag_sav <= rowq_tag;   // this pixel's N cell, saved for the
                 nw_lab_sav <= rowq_lab;   // next pixel's NW if adjacent
                 if (state == S_RC && hn) begin
-                    pxn <= py[0] ? xl1_q : xl0_q;
-                    pstrongn <= py[0] ? xs1_q : xs0_q;
+                    pxn <= xlq_sel;
+                    pstrongn <= xsq_sel;
                 end
                 first_pix <= 1'b0;
                 gi <= 3'd0;
@@ -801,10 +823,10 @@ module backend #(
                         // lands one cycle later), so the first S_CONT cycle sees
                         // fq/rowq == column pxn-1 for ANY resolve length, incl.
                         // the 1-cycle fold-direct path.
-                        pxn <= py[0] ? xl1_q : xl0_q;
-                        pstrongn <= py[0] ? xs1_q : xs0_q;
-                        f_ra <= (py[0] ? xl1_q : xl0_q) - 11'd1;
-                        row_ra <= (py[0] ? xl1_q : xl0_q) - 11'd1;
+                        pxn <= xlq_sel;
+                        pstrongn <= xsq_sel;
+                        f_ra <= (xlq_sel) - 11'd1;
+                        row_ra <= (xlq_sel) - 11'd1;
                     end
                     gi <= 3'd1;
                 end
@@ -1331,14 +1353,20 @@ module backend #(
             end
 
             S_ROWEND: begin
-                if (py[0]) xcnt1 <= 12'd0;
-                else xcnt0 <= 12'd0;
+                // (c2) free the processed row's list for reuse (its bank comes
+                // around again for row py+3; the ingest engine cannot touch it
+                // before the NEXT cycle — its flow-control compare still sees
+                // the old proc_y this cycle) and advance the processing row.
+                case (proc_l)
+                    2'd0: xcnt0 <= 12'd0;
+                    2'd1: xcnt1 <= 12'd0;
+                    default: xcnt2 <= 12'd0;
+                endcase
+                proc_y <= proc_y + 13'd1;
+                proc_b <= proc_b + 2'd1;
+                proc_l <= (proc_l == 2'd2) ? 2'd0 : proc_l + 2'd1;
                 if (eof_row) state <= S_TERM;
-                else begin
-                    ingest_y <= ingest_y + 13'd1;
-                    ing_b <= (ing_b == 2'd2) ? 2'd0 : ing_b + 2'd1;
-                    state <= S_POP;
-                end
+                else state <= S_POP;
             end
 
             S_TERM: if (jfree) begin       // last in-flight record first
@@ -1358,6 +1386,61 @@ module backend #(
 
             default: state <= S_HALT;
         endcase
+
+        // ---- (c2) concurrent event-ingest engine --------------------------
+        // Runs every en cycle in parallel with the row-labelling FSM above:
+        // files data events into the feature banks / interior lists and counts
+        // rows, while the labeller works on an earlier row. ing_pop's flow
+        // control guarantees the written banks are disjoint from the three
+        // feature banks and one list bank the labeller reads (see the ev_pop
+        // assign), so no read port ever sees an in-flight row — and each array
+        // keeps exactly ONE textual writer (the S_POP ingest moved HERE; XST
+        // single-write-port rule). During a dense row's labelling the FIFO
+        // drains into the banks at 1 event/cycle instead of backing up, and
+        // the labeller no longer pays the 1-cycle-per-event S_POP tax.
+        if (ing_pop) begin
+            case (ev_kind)
+                K_INT, K_END: begin
+                    ftag_we <= 1'b1;
+                    ftag_wb <= (ing_b == 2'd0) ? 4'b0001 :
+                               (ing_b == 2'd1) ? 4'b0010 :
+                               (ing_b == 2'd2) ? 4'b0100 : 4'b1000;
+                    ftag_wa <= ev_x[10:0];
+                    ftag_wd <= ingest_y;
+                    case (ing_b)
+                        2'd0: f_kind0[ev_x[10:0]] <= ev_kind;
+                        2'd1: f_kind1[ev_x[10:0]] <= ev_kind;
+                        2'd2: f_kind2[ev_x[10:0]] <= ev_kind;
+                        default: f_kind3[ev_x[10:0]] <= ev_kind;
+                    endcase
+                    if (ev_kind == K_INT) begin
+                        case (ing_l)
+                            2'd0: begin
+                                xl0[xcnt0[10:0]] <= ev_x[10:0];
+                                xs0[xcnt0[10:0]] <= ev_strong;
+                                xcnt0 <= xcnt0 + 12'd1;
+                            end
+                            2'd1: begin
+                                xl1[xcnt1[10:0]] <= ev_x[10:0];
+                                xs1[xcnt1[10:0]] <= ev_strong;
+                                xcnt1 <= xcnt1 + 12'd1;
+                            end
+                            default: begin
+                                xl2[xcnt2[10:0]] <= ev_x[10:0];
+                                xs2[xcnt2[10:0]] <= ev_strong;
+                                xcnt2 <= xcnt2 + 12'd1;
+                            end
+                        endcase
+                    end
+                end
+                K_EOR: begin
+                    ingest_y <= ingest_y + 13'd1;
+                    ing_b <= ing_b + 2'd1;                          // mod 4
+                    ing_l <= (ing_l == 2'd2) ? 2'd0 : ing_l + 2'd1; // mod 3
+                end
+                default: eof_seen <= 1'b1;   // K_EOF
+            endcase
+        end
 
         // in-flight judge completion (overrides the default rec_valid clear;
         // never coincides with S_TERM's emission — S_TERM waits for jfree)
