@@ -38,3 +38,4 @@ rtl/boards/atlys/xapp495/
 # (rtl/tb/vectors/, built from dump_vectors' own procedural images) is tracked.
 rtl/tb/vectors_720p/
 rtl/tb/vectors_big/
+rtl/tb/vprof/
