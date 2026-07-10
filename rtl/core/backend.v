@@ -334,6 +334,8 @@ module backend #(
     reg [10:0] pxn;                    // prefetched next interior x
     reg        pstrongn;               // (d) strong bit of pxn
     reg        hn;                     // pxn valid (more pixels this row)
+    reg        via_fast;               // this pixel took the RB-skip fast path
+                                       //   (pxn captured at S_GATH0, not S_RC)
     reg        first_pix;              // no prefetch available yet
 
     localparam [5:0]
@@ -364,7 +366,7 @@ module backend #(
         S_SCAVP  = 6'd24,   // II=1 pipelined scavenger (v2b backend opt 2)
         S_RB     = 6'd25,   // short fetch path (prefetch overlap), wait
         S_RC     = 6'd26,   // short fetch path, centre-column capture
-        S_SCAV3  = 6'd27,   // retired
+        S_RC2    = 6'd27,   // RB-skip fast path: 1-cy wait for the right column
         S_SCAV4  = 6'd28,   // retired
         S_ROWEND = 6'd29,
         S_TERM   = 6'd30,
@@ -607,6 +609,7 @@ module backend #(
                 prev_x_v <= 1'b0;
                 first_pix <= 1'b1;
                 hn <= 1'b0;
+                via_fast <= 1'b0;
                 state <= S_RNEXT;
             end
 
@@ -632,19 +635,53 @@ module backend #(
                 end else if (first_pix) begin
                     xl_ra <= xi[10:0];
                     xi <= xi + 12'd1;
+                    via_fast <= 1'b0;
                     state <= S_RW;
+                end else if (prev_x_v && prev_x == px - 11'd1) begin
+                    // (RB-skip fast path) Adjacent run: the centre column (px) was
+                    // read as the PREVIOUS pixel's right column and still sits in
+                    // n_aR/n_bR/rq_*_p1 (they are only overwritten at THIS pixel's
+                    // S_GATH0). Carry it instead of re-reading, so the fetch needs
+                    // no S_RB bubble: issue the right column (px+1) now and take a
+                    // single wait cycle (S_RC2) for it. This is the RB third of the
+                    // 3-cy fetch floor removed on adjacent pixels (profiler FETCH
+                    // decomposition). The left column is in fq/rowq as usual
+                    // (prefetched at the previous S_GATH0). Carry == a fresh read at
+                    // column px: n_aR/n_bR use the same bank/tag/address, and
+                    // row_lab[px] is untouched between the previous S_GATH0 and here
+                    // (the previous pixel writes row_lab[px-1]). Same gate as the W
+                    // fast-path: `prev_x == px-1` is false after any label-exhaustion
+                    // skip (px would jump by >=2), so the carried registers always
+                    // belong to px-1.
+                    n_aL <= fcap(b_prev, py_m1, px != 11'd0 && !row0);
+                    n_cL <= fcap(b_cur, py, px != 11'd0);
+                    n_bL <= fcap(b_next, py_p1, px != 11'd0);
+                    rq_tag_m1 <= nw_tag_sav;       // adjacency => NW/W from carry
+                    rq_lab_m1 <= nw_lab_sav;
+                    n_aC <= n_aR;                  // carry centre column (== px) from
+                    n_bC <= n_bR;                  // the previous pixel's right column
+                    rq_tag_0 <= rq_tag_p1;
+                    rq_lab_0 <= rq_lab_p1;
+                    nw_tag_sav <= rq_tag_p1;       // this pixel's N cell -> next NW
+                    nw_lab_sav <= rq_lab_p1;
+                    f_ra <= px + 11'd1;            // issue the right column (px+1) now
+                    row_ra <= px + 11'd1;
+                    if (xi != row_cnt) begin
+                        xl_ra <= xi[10:0];
+                        xi <= xi + 12'd1;
+                        hn <= 1'b1;
+                    end else hn <= 1'b0;
+                    gi <= 3'd0; pdone <= 4'd0; label0 <= 10'd0; label1 <= 10'd0;
+                    first_pix <= 1'b0;
+                    via_fast <= 1'b1;
+                    state <= S_RC2;
                 end else begin
                     // short path: fq/rowq already hold column px-1
                     n_aL <= fcap(b_prev, py_m1, px != 11'd0 && !row0);
                     n_cL <= fcap(b_cur, py, px != 11'd0);
                     n_bL <= fcap(b_next, py_p1, px != 11'd0);
-                    if (prev_x_v && prev_x == px - 11'd1) begin
-                        rq_tag_m1 <= nw_tag_sav;
-                        rq_lab_m1 <= nw_lab_sav;
-                    end else begin
-                        rq_tag_m1 <= (px != 11'd0) ? rowq_tag : TAG_NONE;
-                        rq_lab_m1 <= rowq_lab;
-                    end
+                    rq_tag_m1 <= (px != 11'd0) ? rowq_tag : TAG_NONE;
+                    rq_lab_m1 <= rowq_lab;
                     f_ra <= px;
                     row_ra <= px;
                     if (xi != row_cnt) begin
@@ -652,6 +689,7 @@ module backend #(
                         xi <= xi + 12'd1;
                         hn <= 1'b1;
                     end else hn <= 1'b0;
+                    via_fast <= 1'b0;
                     state <= S_RB;
                 end
             end
@@ -700,6 +738,11 @@ module backend #(
                 state <= S_RC;
             end
 
+            // (RB-skip fast path) 1-cycle wait: the right column (px+1) addressed
+            // in S_RNEXT is in flight (addr@T -> data@T+2 == S_GATH0). The centre
+            // column was carried in S_RNEXT, so nothing to capture here.
+            S_RC2: state <= S_GATH0;
+
             S_RD3, S_RC: begin          // column x data valid now
                 n_aC <= fcap(b_prev, py_m1, !row0);
                 n_bC <= fcap(b_next, py_p1, 1'b1);
@@ -734,9 +777,19 @@ module backend #(
                     n_bR <= fcap(b_next, py_p1, px + 11'd1 < width[10:0]);
                     rq_tag_p1 <= (px + 11'd1 < width[10:0]) ? rowq_tag : TAG_NONE;
                     rq_lab_p1 <= rowq_lab;
-                    if (hn) begin        // prefetch the next pixel's left
-                        f_ra <= pxn - 11'd1;   // column; fq/rowq then hold it
-                        row_ra <= pxn - 11'd1; // untouched through the resolve
+                    if (hn) begin        // prefetch the next pixel's left column
+                        if (via_fast) begin
+                            // The RB-skip fast path has no S_RC, so pxn/pstrongn
+                            // are captured here instead; xl*_q is valid now (set in
+                            // S_RNEXT, addr@T -> data@T+2 == this S_GATH0 cycle).
+                            pxn <= py[0] ? xl1_q : xl0_q;
+                            pstrongn <= py[0] ? xs1_q : xs0_q;
+                            f_ra <= (py[0] ? xl1_q : xl0_q) - 11'd1;
+                            row_ra <= (py[0] ? xl1_q : xl0_q) - 11'd1;
+                        end else begin   // normal/long: pxn already captured (S_RC/S_RD2)
+                            f_ra <= pxn - 11'd1;   // column; fq/rowq then hold it
+                            row_ra <= pxn - 11'd1; // untouched through the resolve
+                        end
                     end
                     gi <= 3'd1;
                 end
