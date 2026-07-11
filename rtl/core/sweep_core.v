@@ -140,7 +140,8 @@ module sweep_core #(
     // wrecked PAR (Setup score ~42k, no convergence). Until the FIFO is
     // rebuilt as a BRAM (sync-read) FIFO behind a small FWFT skid buffer,
     // stay at AW=11 (2048 — the depth every timing-closed build used); corpus
-    // cost: a single frame (IMGP1032) loses 368 segments = 0.166 %.
+    // cost: a single frame (IMGP1032) loses 379 segments = 0.171 % (at the
+    // 64-slot marker reserve, see event_fifo.v).
     //
     // Boundary register: the fe critical chain (e_bit -> feature window ->
     // endpoint adders -> event pack) used to end combinationally at the FIFO's

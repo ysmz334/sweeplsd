@@ -8,11 +8,22 @@
 //  - drop_mode = 1 (LIVE sources that cannot be paused, v2b M3): stall is
 //    never asserted; when the FIFO is nearly full, DATA events (interior /
 //    endpoint) are discarded (`dropped` pulses) while the EOR/EOF row
-//    markers always use the 8-slot reserve — losing a marker would shear
+//    markers always use the RESERVE slots — losing a marker would shear
 //    the back-end's row bookkeeping, losing a data event merely thins the
 //    labelling locally. Self-limiting: dropped events never enter the
 //    interior lists, so overload shrinks the back-end's row work until it
 //    catches up.
+//
+// RESERVE sizing (c2 concurrent ingest): the reserve must hold every marker
+// that can be resident at once = how many rows the labeller can lag behind
+// the video. The serial-ingest back-end resumed popping every row, so 8
+// sufficed; the concurrent-ingest back-end blocks ALL pops while its ingest
+// row runs 3 rows ahead of labelling, so on a dense band one EOR accumulates
+// per lagged row (measured: 9 resident markers on the worst corpus frame —
+// past the old reserve; live scenes go further). 64 covers a 64-row lag,
+// far beyond anything drop-thinning lets persist. As a last line of defence
+// a hard-full push is dropped WHATEVER its kind: a sheared row is recovered
+// by the frame restart, silent ring-pointer corruption is not.
 //
 // Simulation-simple register-array implementation; for the board build this
 // becomes a BRAM FIFO with an output register (same interface).
@@ -41,15 +52,18 @@ module event_fifo #(
     reg [DW-1:0] mem [0:DEPTH-1];
     reg [AW:0] wp, rp;
 
+    localparam integer RESERVE = 64;    // marker headroom (see header)
+
     wire [AW:0] count = wp - rp;
     assign empty = (count == 0);
-    wire afull = (count >= DEPTH - 8);
+    wire afull = (count >= DEPTH - RESERVE);
+    wire full_hard = (count >= DEPTH);  // ring about to overwrite: drop anything
     assign stall = drop_mode ? 1'b0 : afull;
     // kinds: 1 = interior, 2 = endpoint (data); 3 = EOR, 0 = EOF (markers).
     // Kind sits at [13:12] (strong is the extra top bit [14]), so read it there.
     wire [1:0] wkind = wdata[13:12];
     wire is_data = (wkind == 2'd1) || (wkind == 2'd2);
-    wire drop = drop_mode && push && afull && is_data;
+    wire drop = push && ((drop_mode && afull && is_data) || full_hard);
     assign dropped = drop && en;
     assign front = mem[rp[AW-1:0]];
 

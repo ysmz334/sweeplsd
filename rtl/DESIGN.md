@@ -498,9 +498,25 @@ fetch fold 0.215 % → concurrent ingest 0.166 % → 8192 FIFO **0 %** (RTL).
 infers DISTRIBUTED (LUT) RAM — 8192×15 costs ~2,680 memory LUTs plus an
 8192:1 fabric mux tree, which broke PAR outright (Setup score ~42k). The
 shipped `sweep_core` therefore stays at 2048 (every timing-closed build's
-depth; corpus 0.166 %) until the FIFO is rebuilt as a BRAM (sync-read) FIFO
+depth; corpus 0.171 %) until the FIFO is rebuilt as a BRAM (sync-read) FIFO
 behind a small FWFT skid buffer — the remaining step to carry the zero-drop
 result onto the LX45.
+
+**Marker-reserve fix (live-frozen-overlay bug).** The concurrent-ingest
+engine blocks ALL FIFO pops while its ingest row runs 3 rows ahead of
+labelling, so on a dense band one EOR marker accumulates in the FIFO per
+lagged row — the serial-ingest design resumed popping every row, which is
+why an 8-slot marker reserve used to suffice. Measured: 9 resident markers
+on the worst corpus frame, i.e. past the old reserve; live scene changes go
+further, the ring overwrites unread entries, EOR markers are lost,
+`ingest_y` stalls, the labeller waits forever, no end-record is emitted —
+and `overlay_mask` only swaps on the end-record, so the display freezes on
+the previous frame's segments (the exact live symptom). Fix in
+`event_fifo`: RESERVE 8 → 64 (64 rows of labeller lag, far beyond what
+drop-thinning lets persist; the worst corpus frame now peaks at 8 resident
+markers), plus a hard-full guard that drops ANY push at count==DEPTH — a
+sheared row recovers through the normal end-record/restart path, silent
+ring corruption does not.
 
 ## Overlay (demo path, outside the verified core)
 
