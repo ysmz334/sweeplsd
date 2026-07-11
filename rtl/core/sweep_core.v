@@ -130,21 +130,26 @@ module sweep_core #(
         .f_valid(), .f_x(), .f_y(), .f_code());
 
     // ---- elastic buffer ------------------------------------------------------------
-    // AW=13 (8192 deep): with the concurrent-ingest backend the FIFO only
-    // backs up while the labeller runs >3 rows behind; the worst Waseda-corpus
-    // backlog is IMGP1032's 5,975 events (drop-proof-FIFO measurement), so
-    // 8192 makes every corpus frame zero-drop. Cost ~+5 RAMB16 vs AW=11.
+    // Depth: with the concurrent-ingest backend the FIFO only backs up while
+    // the labeller runs >3 rows behind; the worst Waseda-corpus backlog is
+    // IMGP1032's 5,975 events (drop-proof-FIFO measurement), so 8192 would
+    // make every corpus frame zero-drop — and it does in the RTL burst sim.
+    // ON THE BOARD, however, event_fifo's FWFT front (`front = mem[rp]`, an
+    // asynchronous read) forces XST to infer DISTRIBUTED (LUT) RAM: at 8192×15
+    // that is ~2,680 memory LUTs plus an 8192:1 fabric read-mux tree, which
+    // wrecked PAR (Setup score ~42k, no convergence). Until the FIFO is
+    // rebuilt as a BRAM (sync-read) FIFO behind a small FWFT skid buffer,
+    // stay at AW=11 (2048 — the depth every timing-closed build used); corpus
+    // cost: a single frame (IMGP1032) loses 368 segments = 0.166 %.
     //
     // Boundary register: the fe critical chain (e_bit -> feature window ->
     // endpoint adders -> event pack) used to end combinationally at the FIFO's
-    // write port; the 8192-deep RAM adds bank-decode levels there, pushing the
-    // XST estimate from 13.44 to 15.33 ns (> the 13.4 ns pixel-clock budget).
-    // One register at the FIFO boundary cuts the chain (the same dedicated
-    // final-register pattern as the DVI output lanes). Events arrive one en
-    // cycle later — a uniform shift, order preserved, records unchanged; the
-    // one in-flight event during a stall is absorbed by the FIFO's 8-slot
-    // afull reserve (fe_en ⊆ en, so an en-clocked register catches every
-    // ev_v pulse).
+    // write decode. One register at the FIFO boundary cuts the chain (the same
+    // dedicated final-register pattern as the DVI output lanes). Events arrive
+    // one en cycle later — a uniform shift, order preserved, records
+    // unchanged; the one in-flight event during a stall is absorbed by the
+    // FIFO's 8-slot afull reserve (fe_en ⊆ en, so an en-clocked register
+    // catches every ev_v pulse).
     reg        evr_v;
     reg [14:0] evr_w;
     always @(posedge clk) begin
@@ -157,7 +162,7 @@ module sweep_core #(
     end
     wire fifo_empty, fifo_pop;
     wire [14:0] fifo_front;
-    event_fifo #(.DW(15), .AW(13)) u_fifo (
+    event_fifo #(.DW(15), .AW(11)) u_fifo (
         .clk(clk), .rst(rst || frame_start), .en(en),
         .drop_mode(drop_mode), .dropped(ev_dropped),
         .push(evr_v), .wdata(evr_w), .stall(stall),

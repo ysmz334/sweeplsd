@@ -487,13 +487,20 @@ the worst live-demo frame, now drops nothing (peak 530/2048).
 
 **With the concurrent-ingest engine (above) the corpus reads 0.166 % at the
 2048 FIFO — a single lossy frame (IMGP1032, 368 segments; every other frame
-now peaks at ≤ 346 FIFO entries, 6× under the depth) — and ZERO with the
-8192-deep FIFO now instantiated in `sweep_core`**: IMGP1032's true backlog is
-5,975 events (drop-proof-FIFO run), directly verified zero-drop at 8192 with
-all 2,617 records emitted, and every no-drop trajectory is depth-invariant, so
-the whole 150-frame corpus is provably lossless. Journey of the corpus overflow
-loss: live config 52 % → gather/judge/L3 4.83 % → RB fold 3.99 % → terminal
-resolve + fetch fold 0.215 % → concurrent ingest 0.166 % → **8192 FIFO 0 %.**
+now peaks at ≤ 346 FIFO entries, 6× under the depth) — and ZERO at an
+8192-deep FIFO**: IMGP1032's true backlog is 5,975 events (drop-proof-FIFO
+run), directly verified zero-drop at 8192 with all 2,617 records emitted, and
+every no-drop trajectory is depth-invariant, so the whole 150-frame corpus is
+provably lossless at that depth. Journey of the corpus overflow loss: live
+config 52 % → gather/judge/L3 4.83 % → RB fold 3.99 % → terminal resolve +
+fetch fold 0.215 % → concurrent ingest 0.166 % → 8192 FIFO **0 %** (RTL).
+**Board caveat**: `event_fifo`'s FWFT front is an asynchronous read, so XST
+infers DISTRIBUTED (LUT) RAM — 8192×15 costs ~2,680 memory LUTs plus an
+8192:1 fabric mux tree, which broke PAR outright (Setup score ~42k). The
+shipped `sweep_core` therefore stays at 2048 (every timing-closed build's
+depth; corpus 0.166 %) until the FIFO is rebuilt as a BRAM (sync-read) FIFO
+behind a small FWFT skid buffer — the remaining step to carry the zero-drop
+result onto the LX45.
 
 ## Overlay (demo path, outside the verified core)
 
