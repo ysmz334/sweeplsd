@@ -36,7 +36,8 @@ module atlys_rx_top (
     output wire [3:0] tx_tmds_p,      // J2, same channel order
     output wire [3:0] tx_tmds_n,
 
-    output wire [7:0] led
+    output wire [7:0] led,
+    output wire       uart_tx         // USB-UART telemetry (diag; B16)
 );
 
     // ---- EDID (I2C slave at 0x50, data in edid_rom_720p.vhd) -------------------
@@ -148,6 +149,12 @@ module atlys_rx_top (
     wire [17:0] rec_n;
     wire [10:0] rec_minx, rec_minx_y, rec_maxx, rec_maxx_y;
     wire [10:0] rec_miny, rec_miny_x, rec_maxy, rec_maxy_x;
+    wire [5:0]  dbg_be_state;
+    wire [2:0]  dbg_be_cond;
+    wire        dbg_push, dbg_push_eor, dbg_pop, dbg_jwd_fire, dbg_fl_zero;
+    wire        dbg_jstall, dbg_jf, dbg_evdrop;
+    wire [15:0] dbg_pth;
+    wire [11:0] dbg_use_w, dbg_use_h;
     live_core #(.XW(12)) u_live (
         .clk(rx_pclk), .rst(rx_reset),
         .de(gray_de), .vsync(rx_vsync), .gray(gray),
@@ -162,7 +169,16 @@ module atlys_rx_top (
         .rec_maxy(rec_maxy), .rec_maxy_x(rec_maxy_x),
         .busy(core_busy), .drop_latch(drop_latch),
         .evdrop_latch(evdrop_latch),
-        .frame_start(core_fs)
+        .frame_start(core_fs),
+        .dbg_be_state(dbg_be_state),
+        .dbg_be_cond(dbg_be_cond),
+        .dbg_push(dbg_push), .dbg_push_eor(dbg_push_eor), .dbg_pop(dbg_pop),
+        .dbg_jwd_fire(dbg_jwd_fire),
+        .dbg_fl_zero(dbg_fl_zero),
+        .dbg_jstall(dbg_jstall),
+        .dbg_jf(dbg_jf), .dbg_evdrop(dbg_evdrop),
+        .dbg_pth(dbg_pth),
+        .dbg_use_w(dbg_use_w), .dbg_use_h(dbg_use_h)
     );
 
     // v2c (f): draw between the bbox extreme points instead of the first/last
@@ -252,9 +268,115 @@ module atlys_rx_top (
         end
     end
 
-    // 7=lock 6=aligned 5=DE 4=misalign(OFF ok) 3=event drops (density
-    // ceiling hit — overlay thins locally) 2..0=segment count LSBs
-    assign led = {rx_pll_lckd, rx_red_rdy & rx_green_rdy & rx_blue_rdy,
-                  de_seen, drop_latch, evdrop_latch, seg_led[2:0]};
+    // DIAGNOSTIC LED MAP v6 (temporary):
+    //   7 = RX PLL lock
+    //   6 = END-record heartbeat (flicker/dim = passes completing)
+    //   5 = DEATH latched (a pass stopped popping without its END record;
+    //       held until the next END — should now stay OFF)
+    //   4 = judge WATCHDOG fired this pass (sticky, cleared at pass start;
+    //       ON = the judge is still glitching and the watchdog is papering
+    //       over it at 4095 cycles per rescue — must stay OFF)
+    //   3 = event-drop latch (density ceiling; thinning, informational)
+    //   2..0 = segment count LSBs of the last completed pass
+    reg end_hb;
+    reg [19:0] act_pop_cnt;
+    wire act_pop = (act_pop_cnt != 20'd0);
+    reg act_pop_d;
+    reg pass_open;          // a pass started and has not emitted its END record
+    reg death_latched;
+    reg jwd_latch;
+    always @(posedge rx_pclk) begin
+        act_pop_cnt <= dbg_pop ? 20'hFFFFF :
+                       (act_pop_cnt != 20'd0 ? act_pop_cnt - 20'd1 : 20'd0);
+        act_pop_d <= act_pop;
+        if (core_fs) begin
+            pass_open <= 1'b1;
+            jwd_latch <= 1'b0;
+        end
+        if (dbg_jwd_fire) jwd_latch <= 1'b1;
+        if (rec_valid && rec_n == 18'd0) begin
+            end_hb <= ~end_hb;
+            pass_open <= 1'b0;
+            death_latched <= 1'b0;     // healthy pass completed: rearm
+        end
+        if (act_pop_d && !act_pop && pass_open && !death_latched)
+            death_latched <= 1'b1;
+        if (rx_reset) begin
+            end_hb <= 1'b0;
+            act_pop_cnt <= 20'd0;
+            act_pop_d <= 1'b0;
+            pass_open <= 1'b0;
+            death_latched <= 1'b0;
+            jwd_latch <= 1'b0;
+        end
+    end
+    // v9: judge-loss MAGNITUDE — LED4..0 = watchdog fires PER PASS, latched at
+    // each end-record (saturating at 31). A stable readable number:
+    //   0        = no losses
+    //   1..5     = losses trivial (~0.1% of a frame in stalls) -> the bottom
+    //              loss is NOT judge-stall-driven
+    //   31 (all) = thousands per frame -> the labeller is stall-starved
+    //   7 = lock   6 = END heartbeat   5 = event-drop latch
+    // v18: DRAIN-THEFT measurement. v17 proved supply == sim (both 1077 and
+    // 1032 land in the exact sim log2 bucket) while the board still wipes
+    // the bottom -- the back-end's effective drain must be a fraction of the
+    // sim's. Judge stalls are the prime suspect (LED4 of v17: jwd fires on
+    // exactly the loss images). This build (a) shortens the watchdog rescue
+    // 511->63 cy / 2 tries, (b) counts the cycles the labeller waits on the
+    // judge BEYOND legitimate latency (jwd > 16). Latched at each END:
+    //   4    = any data event dropped this pass
+    //   3..0 = log2(judge-stall cycles this pass) - 8, 0 = < 256 cy
+    // Interpretation on IMGP1077: explaining the wipe needs a >= 2^20-cycle
+    // theft (code 12+); code <= 9 (< 130k cy, 5%) = stalls do NOT dominate
+    // and the drain thief is elsewhere (state corruption class).
+    // Per-pass counters (pixel domain) + UART snapshot (see uart_telemetry.v).
+    reg [23:0] jscnt, pcnt, dcnt, jdcnt, wcnt, rcnt;
+    reg jf_q, drop_pass;
+    reg [4:0] diag_disp;
+    reg [23:0] sn_push, sn_drop, sn_jdisp, sn_jstall, sn_jwd, sn_rec;
+    reg sn_tgl;
+    integer pb;
+    reg [3:0] pmsb;
+    always @(*) begin
+        pmsb = 4'd0;
+        for (pb = 8; pb <= 23; pb = pb + 1)
+            if (jscnt[pb]) pmsb = pb - 8;
+    end
+    always @(posedge rx_pclk) begin
+        jf_q <= dbg_jf;
+        if (dbg_jstall && jscnt != 24'hFFFFFF) jscnt <= jscnt + 24'd1;
+        if (dbg_push && !dbg_push_eor && pcnt != 24'hFFFFFF) pcnt <= pcnt + 24'd1;
+        if (dbg_evdrop && dcnt != 24'hFFFFFF) dcnt <= dcnt + 24'd1;
+        if (dbg_jf && !jf_q && jdcnt != 24'hFFFFFF) jdcnt <= jdcnt + 24'd1;
+        if (dbg_jwd_fire && wcnt != 24'hFFFFFF) wcnt <= wcnt + 24'd1;
+        if (evdrop_latch) drop_pass <= 1'b1;
+        if (rec_valid && rec_n != 18'd0 && rcnt != 24'hFFFFFF) rcnt <= rcnt + 24'd1;
+        if (rec_valid && rec_n == 18'd0) begin
+            diag_disp <= {drop_pass, pmsb};
+            sn_push <= pcnt;  sn_drop <= dcnt;  sn_jdisp <= jdcnt;
+            sn_jstall <= jscnt;  sn_jwd <= wcnt;  sn_rec <= rcnt;
+            sn_tgl <= ~sn_tgl;
+            jscnt <= 24'd0;  pcnt <= 24'd0;  dcnt <= 24'd0;
+            jdcnt <= 24'd0;  wcnt <= 24'd0;  rcnt <= 24'd0;
+            drop_pass <= 1'b0;
+        end
+        if (rx_reset) begin
+            jscnt <= 24'd0;  pcnt <= 24'd0;  dcnt <= 24'd0;
+            jdcnt <= 24'd0;  wcnt <= 24'd0;  rcnt <= 24'd0;
+            jf_q <= 1'b0;
+            drop_pass <= 1'b0;
+            diag_disp <= 5'd0;
+            sn_tgl <= 1'b0;
+        end
+    end
+    assign led = {rx_pll_lckd, end_hb, drop_latch, diag_disp};
+
+    uart_telemetry u_uart (
+        .clk100(clk100), .rst(1'b0),
+        .snap_toggle(sn_tgl),
+        .c_push(sn_push), .c_drop(sn_drop), .c_jdisp(sn_jdisp),
+        .c_jstall(sn_jstall), .c_jwd(sn_jwd), .c_rec(sn_rec),
+        .uart_tx(uart_tx)
+    );
 
 endmodule

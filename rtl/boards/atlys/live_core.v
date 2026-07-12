@@ -46,7 +46,20 @@ module live_core #(
     output wire        busy,
     output reg         drop_latch,    // pixel lost / misaligned this pass
     output reg         evdrop_latch,  // events discarded (density ceiling hit)
-    output reg         frame_start    // exposed for debug counters
+    output reg         frame_start,   // exposed for debug counters
+    output wire [5:0]  dbg_be_state,  // back-end FSM state (wedge diagnosis)
+    output wire [2:0]  dbg_be_cond,
+    output wire        dbg_push,
+    output wire        dbg_push_eor,
+    output wire        dbg_pop,
+    output wire        dbg_jwd_fire,
+    output wire        dbg_fl_zero,
+    output wire        dbg_jstall,
+    output wire        dbg_jf,
+    output wire        dbg_evdrop,   // per-event drop pulse (telemetry)
+    output wire [15:0] dbg_pth,      // (kept for port stability; constant)
+    output wire [11:0] dbg_use_w,    // measured frame geometry (wedge diagnosis)
+    output wire [11:0] dbg_use_h
 );
 
     // register the stream once (timing isolation; pair stays aligned)
@@ -104,38 +117,54 @@ module live_core #(
             use_w <= 12'd0; use_h <= 12'd0;
         end
     end
-    assign res_shift = (use_w > 12'd1280);
+    // registered: use_w spans the die into the overlay's coordinate muxes —
+    // quasi-static, so a settling cycle is harmless (was a worst-slack path)
+    reg res_shift_q;
+    always @(posedge clk) res_shift_q <= (use_w > 12'd1280);
+    assign res_shift = res_shift_q;
+    assign dbg_use_w = use_w;
+    assign dbg_use_h = use_h;
 
     // ---- pass start control ---------------------------------------------------
     reg eof_seen;
-    reg [1:0] skip_cnt;
-    wire force_start = vs_fall && stable_now && (skip_cnt >= 2'd2);
+    reg [2:0] skip_cnt;   // DIAG: widened, kill window 3->8 vsyncs
+    wire force_start = vs_fall && stable_now && (skip_cnt >= 3'd7);
     always @(posedge clk) begin
         frame_start <= (vs_fall && stable_now && !busy && eof_seen) || force_start;
         if (rec_valid && rec_n == 18'd0) eof_seen <= 1'b1;
         if (vs_fall) begin
             if (busy || !eof_seen) begin
-                if (skip_cnt != 2'd3) skip_cnt <= skip_cnt + 2'd1;   // saturate
+                if (skip_cnt != 3'd7) skip_cnt <= skip_cnt + 3'd1;   // saturate
             end else begin
-                skip_cnt <= 2'd0;
+                skip_cnt <= 3'd0;
             end
         end
         if (frame_start) begin
             eof_seen <= 1'b0;
-            skip_cnt <= 2'd0;
+            skip_cnt <= 3'd0;
         end
         if (rst) begin
             frame_start <= 1'b0;
             eof_seen <= 1'b1;      // nothing to drain before the first pass
-            skip_cnt <= 2'd0;
+            skip_cnt <= 3'd0;
         end
     end
 
+    // NOTE (2026-07-12): a multi-frame adaptive threshold controller
+    // (AIMD on power_th / hyst_low, diag builds v14-v16) lived here while
+    // hunting the live bottom-loss. It treated the symptom, confused the
+    // demo (thresholds changing over seconds have no SW counterpart), and
+    // the loss persisted even with full supply authority — the evidence
+    // now points at a board-only back-end drain anomaly. Removed at the
+    // author's request; thresholds are fixed to the SW defaults again.
+    assign dbg_pth = 16'd256;
+
     // ---- detector core ----------------------------------------------------------
     wire px_ready;
+    wire ev_dropped;
+    assign dbg_evdrop = ev_dropped;
     wire [29:0] rec_xs, rec_ys;      // moments unused by the overlay demo
     wire [40:0] rec_xss, rec_yss, rec_xys;
-    wire ev_dropped;
     sweep_core #(.XW(XW)) u_core (
         .clk(clk), .rst(rst), .en(1'b1),
         .drop_mode(1'b1), .ev_dropped(ev_dropped),   // live: drop, never stall
@@ -161,7 +190,14 @@ module live_core #(
         .rec_minx(rec_minx), .rec_minx_y(rec_minx_y),
         .rec_maxx(rec_maxx), .rec_maxx_y(rec_maxx_y),
         .rec_miny(rec_miny), .rec_miny_x(rec_miny_x),
-        .rec_maxy(rec_maxy), .rec_maxy_x(rec_maxy_x)
+        .rec_maxy(rec_maxy), .rec_maxy_x(rec_maxy_x),
+        .dbg_be_state(dbg_be_state),
+        .dbg_be_cond(dbg_be_cond),
+        .dbg_push(dbg_push), .dbg_push_eor(dbg_push_eor), .dbg_pop(dbg_pop),
+        .dbg_jwd_fire(dbg_jwd_fire),
+        .dbg_fl_zero(dbg_fl_zero),
+        .dbg_jstall(dbg_jstall),
+        .dbg_jf(dbg_jf)
     );
 
     // A DE pixel the walker could not take = misalignment (with drop_mode

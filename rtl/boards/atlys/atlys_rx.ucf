@@ -14,6 +14,9 @@ TIMESPEC "TS_clk100" = PERIOD "tn_clk100" 10 ns HIGH 50%;
 # reset push button
 NET "rstbtn_n" LOC = "T15" | IOSTANDARD = LVCMOS33;
 
+# USB-UART (EXAR XR21V1410): FPGA TX -> EXAR RX (diag telemetry, 115200 8N1)
+NET "uart_tx" LOC = "B16" | IOSTANDARD = LVCMOS33 | SLEW = SLOW | DRIVE = 4;
+
 # J3 DDC — the FPGA answers EDID reads here (edid_rom_720p.vhd)
 NET "rx_scl" LOC = "M16" | IOSTANDARD = LVCMOS33;
 NET "rx_sda" LOC = "M18" | IOSTANDARD = LVCMOS33;
