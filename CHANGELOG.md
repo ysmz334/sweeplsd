@@ -1,5 +1,52 @@
 # Changelog
 
+## v1.1.0 (2026-07-13)
+
+The FPGA release: the thesis proposed OPLSD as a hardware-oriented method but
+left the FPGA form as future work — this release closes that gap.
+
+- **HLS implementation** (`hls/`): the full detector as synthesizable HLS C++
+  (Vitis HLS; Artix-7 xc7a35t reports, front-end II=1 at 100 MHz), plus a
+  tool-free g++ compatibility shim and golden-parity testbenches against
+  `detect()`.
+- **Verilog RTL implementation** (`rtl/`): portable hand-written core
+  (streaming front-end → event FIFO → labelling back-end → integer judge),
+  held **bit-exact** against the HLS C model and the C++ reference — the
+  SW == HLS == RTL parity gate covers the full 150-photo Full-HD corpus.
+- **Live board demo** (`rtl/boards/atlys/`): Digilent Atlys (Spartan-6 LX45,
+  2009 silicon) — HDMI in → detect → green segment overlay → HDMI out at
+  1080p30 and 720p60, no frame buffer, no external memory, single
+  recovered-clock domain. The `improved()` refinements that fit the
+  streaming/integer model are all in the hardware.
+- **Back-end throughput levers** (each measured and bit-exact): gather
+  parallel-skip, judge datapath narrowing + zero-pass skip, fetch folding,
+  concurrent event ingest. Dense-frame event-FIFO overflow on the LX45 went
+  from ~52 % corpus segment loss (first live build) to **~0.2 %** at the
+  shipped 2048-deep FIFO (one dense frame still sheds; zero-drop proven in
+  simulation at depth 8192 — see `rtl/DESIGN.md`, "Overflow reality check").
+- **Live-robustness set**: event-FIFO marker reserve + hysteretic shedding,
+  overlay record-FIFO deepening, judge watchdog, per-pass UART telemetry and
+  diagnostic LEDs.
+- **XST workaround (important for board builders)**: ISE XST's FSM
+  re-encoding **mis-synthesizes the back-end FSM** — a silent functional
+  divergence at Timing Score 0, invisible to RTL simulation, diagnosed by
+  gate-level simulation of the netlist. All ISE builds now pass
+  `-fsm_extract NO`; the full story is in `rtl/DESIGN.md`.
+- **Fidelity fix (changes default output)**: the outer 3 px of the frame are
+  excluded from the edge test (`Params::edge_border_margin = 3`), removing a
+  spurious full-frame ring of false edges that the 2×2 gradient manufactures
+  at the image border (the original 2014 implementation suppressed a
+  comparable band; the reproduction had dropped that). Baseline segment
+  counts drop ~4 % on the Full-HD corpus and the baseline's heavy-noise
+  F-max recovers (σ10: 0.47 → 0.94); the improved config is unchanged.
+  Evaluation pages regenerated.
+- **Evaluation tooling**: 3-level SW / HLS-C / RTL comparison renderer, RTL
+  ground-truth burst-overflow simulator, FIFO-drop visualizers.
+
+## v1.0.1 (2026-07-06)
+
+- Fix non-x86 builds and the bench directory listing; add repository links.
+
 ## v1.0.0 (2026-07-06)
 
 First public release.
