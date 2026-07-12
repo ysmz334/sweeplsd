@@ -38,6 +38,15 @@
 `ifndef DEPTH_AW
 `define DEPTH_AW 11
 `endif
+`ifndef RSV
+`define RSV 1152
+`endif
+`ifndef DHYST
+`define DHYST 448
+`endif
+`ifndef OUT
+`define OUT `VEC
+`endif
 
 module tb_backend_burst;
     localparam integer W = `IMG_W;
@@ -74,7 +83,7 @@ module tb_backend_burst;
     // FIFO
     wire        fifo_empty, fifo_pop, fifo_dropped, fifo_stall;
     wire [14:0] fifo_front;
-    event_fifo #(.DW(15), .AW(`DEPTH_AW)) u_fifo (
+    event_fifo #(.DW(15), .AW(`DEPTH_AW), .RESERVE(`RSV), .DROP_HYST(`DHYST)) u_fifo (
         .clk(clk), .rst(rst), .en(en),
         .drop_mode(1'b1), .push(due), .wdata(ev_mem[push_i]),
         .stall(fifo_stall), .dropped(fifo_dropped),
@@ -89,7 +98,11 @@ module tb_backend_burst;
     wire [10:0] rec_minx, rec_minx_y, rec_maxx, rec_maxx_y;
     wire [10:0] rec_miny, rec_miny_x, rec_maxy, rec_maxy_x;
 
-    backend #(.XW(XW)) dut (
+    backend
+`ifndef GL
+        #(.XW(XW))
+`endif
+    dut (
         .clk(clk), .rst(rst), .en(en),
         .width(W[XW-1:0]), .height(H[XW-1:0]), .pix_th(18'd`PIX_TH),
         .hyst_on(`HYST_ON != 0), .hyst_strong_min(18'd`HYST_MIN),
@@ -132,6 +145,65 @@ module tb_backend_burst;
         end
     end
 
+`ifndef GL
+    // ---- MONITOR: judge-wait profile (board-LED comparison) -----------------
+    // jstall = cycles with jwd > 16 (same definition as the board's v18 LED);
+    // jmax = worst single-dispatch wait; jdisp = dispatches.
+    integer jstall_cyc, jmax, jdisp;
+    reg jf_q;
+    always @(posedge clk) begin
+        if (rst) begin jstall_cyc = 0; jmax = 0; jdisp = 0; jf_q = 0; end
+        else begin
+            if (dut.jf_inflight && !dut.j_done && dut.jwd > 9'd16)
+                jstall_cyc = jstall_cyc + 1;
+            if (dut.jwd > jmax) jmax = dut.jwd;
+            jf_q <= dut.jf_inflight;
+            if (dut.jf_inflight && !jf_q) jdisp = jdisp + 1;
+        end
+    end
+
+    // ---- MONITOR: per-dispatch operand/latency dump (netlist-bug hunt) ------
+    integer fdisp, dn, dstart;
+    initial begin
+        fdisp = $fopen({`OUT, "_disp.txt"}, "w");
+        dn = 0;
+    end
+    always @(posedge clk) begin
+        if (!rst) begin
+            if (dut.jf_inflight && !jf_q) begin
+                dn = dn + 1;
+                dstart = gcyc;
+                if (dn <= 300 && fdisp != 0)
+                    $fdisplay(fdisp, "disp %0d cyc %0d n=%0d xs=%0d ys=%0d xss=%0d yss=%0d xys=%0d mps=%0d",
+                              dn, gcyc, dut.j_n, dut.j_xs, dut.j_ys,
+                              dut.j_xss, dut.j_yss, dut.j_xys, dut.u_judge.mps_2sq);
+            end
+            if (!dut.jf_inflight && jf_q && dn <= 300 && fdisp != 0)
+                $fdisplay(fdisp, "disp %0d done_at %0d (lat %0d)", dn, gcyc, gcyc - dstart);
+        end
+    end
+
+`endif
+    // ---- MONITOR: markers resident in the FIFO + hard ring overflow ---------
+    integer mark_in, mark_max;
+    reg ovfl;
+    wire push_eff = due && !(u_fifo.drop);
+    wire mk_push = push_eff && (pk == 2'd3 || pk == 2'd0);
+    wire mk_pop  = fifo_pop && (fifo_front[13:12] == 2'd3 || fifo_front[13:12] == 2'd0);
+    always @(posedge clk) begin
+        if (rst) begin mark_in = 0; mark_max = 0; ovfl = 1'b0; end
+        else begin
+            if (mk_push && !mk_pop) mark_in = mark_in + 1;
+            else if (mk_pop && !mk_push) mark_in = mark_in - 1;
+            if (mark_in > mark_max) mark_max = mark_in;
+            if (u_fifo.count > (1<<`DEPTH_AW) && !ovfl) begin
+                ovfl = 1'b1;
+                $display("HARD-OVERFLOW count=%0d at prod_row=%0d markers=%0d",
+                         u_fifo.count, prod_row, mark_in);
+            end
+        end
+    end
+
     // ---- occupancy / drop / record logging ---------------------------------
     integer peak_occ;
     integer total_drop;
@@ -163,6 +235,18 @@ module tb_backend_burst;
         end
     end
 
+    // record dump (sy sx ey ex n per line) for spatial analysis
+    integer frec;
+    initial frec = $fopen({`OUT, "_recs_out.txt"}, "w");
+    always @(posedge clk) begin
+        if (!rst && started && !frame_done && rec_valid && rec_n != 18'd0 && frec != 0)
+            $fdisplay(frec, "%0d %0d %0d %0d %0d %0d %0d %0d %0d %0d %0d %0d %0d %0d %0d %0d %0d %0d",
+                      rec_sx, rec_sy, rec_ex, rec_ey, rec_n,
+                      rec_xs, rec_ys, rec_xss, rec_yss, rec_xys,
+                      rec_minx, rec_minx_y, rec_maxx, rec_maxx_y,
+                      rec_miny, rec_miny_x, rec_maxy, rec_maxy_x);
+    end
+
     // ---- setup + finish -----------------------------------------------------
     integer i, watchdog, fcsv, rr, rows_with_drop, maxrow, maxrowocc, fmask;
     initial begin
@@ -180,6 +264,17 @@ module tb_backend_burst;
         rst <= 1'b0;
     end
 
+`ifdef EARLYSTOP
+    always @(posedge clk) if (!rst && gcyc > `EARLYSTOP) begin
+        $display("EARLYSTOP at gcyc %0d rec_emitted=%0d total_drop=%0d",
+                 gcyc, rec_emitted, total_drop);
+`ifndef GL
+        $fclose(fdisp);
+`endif
+        $finish;
+    end
+`endif
+
     // watchdog + report
     always @(posedge clk) begin
         watchdog = watchdog + 1;
@@ -190,10 +285,15 @@ module tb_backend_burst;
                 if (row_drop[rr] > maxrow) maxrow = row_drop[rr];
                 if (row_peak[rr] > maxrowocc) maxrowocc = row_peak[rr];
             end
+            $display("MARKERS max_in_fifo=%0d ovfl=%0d", mark_max, ovfl);
+`ifndef GL
+            $display("JUDGE dispatches=%0d jstall_cyc=%0d jmax_wait=%0d",
+                     jdisp, jstall_cyc, jmax);
+`endif
             $display("RESULT peak_occ=%0d total_drop=%0d rec_emitted=%0d rows_with_drop=%0d max_row_drop=%0d max_row_peak=%0d",
                      peak_occ, total_drop, rec_emitted, rows_with_drop, maxrow, maxrowocc);
             // per-row CSV
-            fcsv = $fopen({`VEC, "_burst.csv"}, "w");
+            fcsv = $fopen({`OUT, "_burst.csv"}, "w");
             if (fcsv != 0) begin
                 $fdisplay(fcsv, "row,interior,peak_occ,drop");
                 for (rr = 0; rr < prod_row; rr = rr + 1)
@@ -203,7 +303,7 @@ module tb_backend_burst;
             end
             // per-event drop mask (one 0/1 per event, in events.hex order) for the
             // spatial dropviz (fifo_dropviz --dropmask): faithful RTL drop set.
-            fmask = $fopen({`VEC, "_dropmask.txt"}, "w");
+            fmask = $fopen({`OUT, "_dropmask.txt"}, "w");
             if (fmask != 0) begin
                 for (rr = 0; rr < ev_n; rr = rr + 1)
                     $fdisplay(fmask, "%0d", dropmask[rr]);

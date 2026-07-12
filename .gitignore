@@ -46,3 +46,14 @@ rtl/boards/atlys/xapp495/
 rtl/tb/vectors_720p/
 rtl/tb/vectors_big/
 rtl/tb/vprof/
+
+# Local diagnostic dumps and comparison renders — regenerable, and some derive
+# from the non-redistributed Waseda photos. Keep on disk, never commit.
+.compare150/
+*.pgm
+rtl/tb/rtl150/
+rtl/tb/vectors_dbg*/
+rtl/tb/*_burst.csv
+rtl/tb/*_dropmask.txt
+rtl/tb/*_recs_out.txt
+rtl/tb/*.vvp

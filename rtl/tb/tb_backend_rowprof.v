@@ -1,8 +1,27 @@
-// PROFILING testbench (diagnostic): backend + judge_unit driven
-// from the golden event stream, with a per-state occupancy histogram to
-// re-derive the cy/interior breakdown after the gather-parallel-skip +
-// judge Lever1 optimisations. Run with CE_DIV=1 (fastest supply). Prints the
-// grouped state occupancy on finish. Based on tb_backend.v.
+// PER-ROW drain-cycle profiling testbench (diagnostic).
+//
+// Purpose: analyse WHERE the backend spends cycles during a BURST. tb_backend_prof.v
+// gives the frame-total state histogram; tb_backend_burst.v gives per-row FIFO
+// occupancy/drops. Neither shows the per-row *drain cost* broken down by state, which
+// is what decides whether a row overflows: on the board the backend gets exactly
+// (W + HBLANK) pixel clocks per row period to drain that row's work. If a row's
+// intrinsic drain cost exceeds that budget the FIFO backlog grows -> burst.
+//
+// This TB runs at CE_DIV=1 with UNLIMITED supply (event array, no FIFO, never stalls),
+// so the measured per-row cycle count is the PURE intrinsic drain cost of that row
+// (the "drain capability" side of supply-vs-drain). Cycles are attributed to the
+// current drain row = number of EOR events popped so far (same row index space the
+// producer-side burst.csv uses). For each row it accumulates the state-group cycle
+// breakdown and the interior-event count, then dumps {VEC}_rowprof.csv:
+//   row,interior,total,ingest,fetch,gather,acc,cont,adopt,scav,mergecreate,rowsetup
+// Records are also checked bit-exact against the golden stream (sanity that the
+// instrumentation did not perturb the FSM).
+//
+// Note on the y-lag: the backend processes physical row py while it has already
+// ingested row py+1's events (single-row-buffer trick). Attribution by EOR-pop count
+// therefore places "ingest of row k + process of row ~k-1" in bucket k; the <=2 row
+// phase offset is immaterial for the multi-row burst-region analysis (dense regions
+// span ~100 rows) and the per-row total is exact.
 
 `timescale 1ns / 1ps
 
@@ -22,12 +41,13 @@
 `define MPS_2SQ 0
 `endif
 
-module tb_backend_prof;
+module tb_backend_rowprof;
     localparam integer W = `IMG_W;
     localparam integer H = `IMG_H;
     localparam integer XW = 12;
     localparam integer MAXEV = 2 * W * H + H + 4;
     localparam integer MAXREC = 8192;
+    localparam integer MAXROW = 1279;
 
     reg clk = 1'b0;
     reg rst = 1'b1;
@@ -36,7 +56,7 @@ module tb_backend_prof;
     always @(posedge clk) ce_cnt <= (ce_cnt == `CE_DIV - 1) ? 4'd0 : ce_cnt + 4'd1;
     wire ce = (ce_cnt == 4'd0);
 
-    // ---- event FIFO model ---------------------------------------------------
+    // ---- event source (golden stream, unlimited supply) --------------------
     reg [15:0] ev_mem [0:MAXEV-1];
     integer ev_n;
     integer ev_i;
@@ -46,7 +66,18 @@ module tb_backend_prof;
     wire ev_strong = ev_mem[ev_i][14];
     wire ev_pop;
 
-    always @(posedge clk) if (!rst && ev_pop && ce) ev_i <= ev_i + 1;
+    localparam [1:0] K_EOF = 2'd0, K_INT = 2'd1, K_END = 2'd2, K_EOR = 2'd3;
+
+    // current drain row = # of EOR events popped so far
+    integer cur_row;
+    always @(posedge clk) begin
+        if (rst) begin
+            ev_i <= 0; cur_row <= 0;
+        end else if (ev_pop && ce) begin
+            if (ev_kind == K_EOR && cur_row < MAXROW) cur_row <= cur_row + 1;
+            ev_i <= ev_i + 1;
+        end
+    end
 
     // ---- golden records -----------------------------------------------------
     reg [10:0] g_sx [0:MAXREC-1];
@@ -116,55 +147,68 @@ module tb_backend_prof;
         end
     end
 
-    // ---- per-state occupancy histogram (CE_DIV=1: one FSM step / cycle) -----
-    integer st_hist [0:63];
+    // ---- per-row grouped cycle accumulators --------------------------------
+    integer row_tot   [0:MAXROW];
+    integer row_int   [0:MAXROW];
+    integer row_ing   [0:MAXROW];   // S_POP (ingest)
+    integer row_fetch [0:MAXROW];   // RNEXT,RW,RCAP,RD1-3,RB,RC,RC2
+    integer row_gath  [0:MAXROW];   // GATH0,GWAIT,GATH1
+    integer row_acc   [0:MAXROW];   // ACC
+    integer row_cont  [0:MAXROW];   // CONT
+    integer row_adopt [0:MAXROW];   // ARD,ACAP
+    integer row_scav  [0:MAXROW];   // SCAVP
+    integer row_mc    [0:MAXROW];   // CWAIT,CREATE,MRDA,MCAPA,MCAPB,MEXEC
+    integer row_rse   [0:MAXROW];   // ROW0,ROWEND
     integer active_cyc;
-    integer hk;
+
+    integer s;
     always @(posedge clk) begin
-        if (!rst && !frame_done && ce) begin
-            st_hist[dut.state] = st_hist[dut.state] + 1;
+        if (!rst && !frame_done && ce && cur_row <= MAXROW) begin
             active_cyc = active_cyc + 1;
+            row_tot[cur_row] = row_tot[cur_row] + 1;
+            s = dut.state;
+            case (s)
+                1:                        row_ing[cur_row]   = row_ing[cur_row]   + 1;
+                4,5,6,7,8,9,23,25,26,27:  row_fetch[cur_row] = row_fetch[cur_row] + 1;
+                10,11,12:                 row_gath[cur_row]  = row_gath[cur_row]  + 1;
+                21:                       row_acc[cur_row]   = row_acc[cur_row]   + 1;
+                22:                       row_cont[cur_row]  = row_cont[cur_row]  + 1;
+                19,20:                    row_adopt[cur_row] = row_adopt[cur_row] + 1;
+                24:                       row_scav[cur_row]  = row_scav[cur_row]  + 1;
+                13,14,15,16,17,18:        row_mc[cur_row]    = row_mc[cur_row]    + 1;
+                3,29:                     row_rse[cur_row]   = row_rse[cur_row]   + 1;
+                default: ;  // S_INIT / S_TERM / S_HALT
+            endcase
         end
+        // interior events supplied for this row
+        if (!rst && !frame_done && ev_pop && ce &&
+            (ev_kind == K_INT || ev_kind == K_END) && cur_row <= MAXROW)
+            row_int[cur_row] = row_int[cur_row] + 1;
     end
 
     // watchdog + finish + report
     integer cyc = 0;
     integer n_int, n_end, n_eor;
-    // grouped sums
-    integer g_init, g_ingest, g_rowsetup, g_fetch, g_gather, g_create,
-            g_adopt, g_merge, g_acc, g_cont, g_scav, g_rowend, g_term;
+    integer rr, fcsv;
     always @(posedge clk) begin
         cyc = cyc + 1;
         if (frame_done) begin
             $display("RESULT records=%0d errors=%0d", ri, errors);
             $display("EVENTS int=%0d end=%0d eor=%0d", n_int, n_end, n_eor);
-            $display("ACTIVE_CYC %0d", active_cyc);
-            // raw per-state
-            for (hk = 0; hk < 32; hk = hk + 1)
-                if (st_hist[hk] != 0) $display("STATE %0d = %0d", hk, st_hist[hk]);
-            // grouped
-            g_init     = st_hist[0];
-            g_ingest   = st_hist[1] + st_hist[2];                       // POP,EV
-            g_rowsetup = st_hist[3];                                    // ROW0
-            g_fetch    = st_hist[4]+st_hist[5]+st_hist[6]+st_hist[7]+
-                         st_hist[8]+st_hist[9]+st_hist[23]+st_hist[25]+
-                         st_hist[26]+st_hist[27];
-                         // RNEXT,RW,RCAP,RD1-3,RX(c),RB,RC,RC2(fast-path wait)
-            g_gather   = st_hist[10]+st_hist[11]+st_hist[12];           // GATH0,GWAIT,GATH1
-            g_create   = st_hist[13]+st_hist[14];                       // CWAIT,CREATE
-            g_adopt    = st_hist[19]+st_hist[20];                       // ARD,ACAP
-            g_merge    = st_hist[15]+st_hist[16]+st_hist[17]+st_hist[18];// MRDA,MCAPA,MCAPB,MEXEC
-            g_acc      = st_hist[21];                                   // ACC
-            g_cont     = st_hist[22];                                   // CONT
-            g_scav     = st_hist[24];                                   // SCAVP
-            g_rowend   = st_hist[29];                                   // ROWEND
-            g_term     = st_hist[30]+st_hist[31];                       // TERM,HALT
-            $display("GROUP init=%0d ingest=%0d rowsetup=%0d fetch=%0d gather=%0d create=%0d adopt=%0d merge=%0d acc=%0d cont=%0d scav=%0d rowend=%0d term=%0d",
-                     g_init, g_ingest, g_rowsetup, g_fetch, g_gather, g_create,
-                     g_adopt, g_merge, g_acc, g_cont, g_scav, g_rowend, g_term);
+            $display("ACTIVE_CYC %0d rows=%0d", active_cyc, cur_row);
+            fcsv = $fopen({`VEC, "_rowprof.csv"}, "w");
+            if (fcsv != 0) begin
+                $fdisplay(fcsv, "row,interior,total,ingest,fetch,gather,acc,cont,adopt,scav,mergecreate,rowsetup");
+                for (rr = 0; rr <= cur_row && rr <= MAXROW; rr = rr + 1)
+                    $fdisplay(fcsv, "%0d,%0d,%0d,%0d,%0d,%0d,%0d,%0d,%0d,%0d,%0d,%0d",
+                              rr, row_int[rr], row_tot[rr], row_ing[rr], row_fetch[rr],
+                              row_gath[rr], row_acc[rr], row_cont[rr], row_adopt[rr],
+                              row_scav[rr], row_mc[rr], row_rse[rr]);
+                $fclose(fcsv);
+            end
             $finish;
         end
-        if (cyc > 20000000) begin
+        if (cyc > 40000000) begin
             $display("FAIL watchdog state=%0d ev %0d/%0d", dut.state, ev_i, ev_n);
             $finish;
         end
@@ -178,10 +222,13 @@ module tb_backend_prof;
     reg [10:0] v_b0, v_b1, v_b2, v_b3, v_b4, v_b5, v_b6, v_b7;
     integer i;
     initial begin
-        for (i = 0; i < 64; i = i + 1) st_hist[i] = 0;
+        for (i = 0; i <= MAXROW; i = i + 1) begin
+            row_tot[i]=0; row_int[i]=0; row_ing[i]=0; row_fetch[i]=0; row_gath[i]=0;
+            row_acc[i]=0; row_cont[i]=0; row_adopt[i]=0; row_scav[i]=0; row_mc[i]=0;
+            row_rse[i]=0;
+        end
         active_cyc = 0;
         n_int = 0; n_end = 0; n_eor = 0;
-        ev_i = 0;
         for (i = 0; i < MAXEV; i = i + 1) ev_mem[i] = 16'hxxxx;
         $readmemh({`VEC, "_events.hex"}, ev_mem);
         ev_n = 0;
@@ -189,9 +236,9 @@ module tb_backend_prof;
             if (ev_mem[i] !== 16'hxxxx) begin
                 ev_n = ev_n + 1;
                 case (ev_mem[i][13:12])
-                    2'd1: n_int = n_int + 1;   // K_INT
-                    2'd2: n_end = n_end + 1;   // K_END
-                    2'd3: n_eor = n_eor + 1;   // K_EOR
+                    2'd1: n_int = n_int + 1;
+                    2'd2: n_end = n_end + 1;
+                    2'd3: n_eor = n_eor + 1;
                     default: ;
                 endcase
             end
