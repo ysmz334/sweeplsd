@@ -33,16 +33,23 @@ module overlay_mask #(
     reg front_sel;                    // which mask the display reads
 
     // ---- record FIFO (absorbs records while the drawer clears) --------------
-    reg [43:0] rfifo [0:255];
-    reg [8:0] rwp, rrp;
+    // 1024 deep (was 256): records arrive in ROW ORDER, so an overflow drops
+    // the LATEST records = the BOTTOM segments — and the frame-end TERM
+    // sweep resolves every still-open label in one burst (hundreds of
+    // records in a few hundred cycles) exactly when the queue is least
+    // empty. 256 measurably truncated dense frames from the bottom; 1024
+    // covers the corpus-worst pass (2,617 records total, TERM burst < 1k)
+    // at the cost of one more BRAM.
+    reg [43:0] rfifo [0:1023];
+    reg [10:0] rwp, rrp;
     wire rf_empty = (rwp == rrp);
-    wire [8:0] rf_count = rwp - rrp;
+    wire [10:0] rf_count = rwp - rrp;
     always @(posedge clk) begin
-        if (rec_valid && !rec_last && rf_count < 9'd250) begin
-            rfifo[rwp[7:0]] <= {rec_sx, rec_sy, rec_ex, rec_ey};
-            rwp <= rwp + 9'd1;
+        if (rec_valid && !rec_last && rf_count < 11'd1016) begin
+            rfifo[rwp[9:0]] <= {rec_sx, rec_sy, rec_ex, rec_ey};
+            rwp <= rwp + 11'd1;
         end
-        if (rst) rwp <= 9'd0;
+        if (rst) rwp <= 11'd0;
     end
 
     // ---- swap control ----------------------------------------------------------
@@ -105,9 +112,15 @@ module overlay_mask #(
                     clr_a <= clr_a + 1'b1;
                     if (clr_a == NB - 1) dstate <= D_IDLE;
                 end
-                D_IDLE: if (!rf_empty && !swap_pending) begin
-                    rec_cur <= rfifo[rrp[7:0]];
-                    rrp <= rrp + 9'd1;
+                // Drain even while swap_pending: between the end-record and
+                // the sof swap the detector is idle (frame_start fires on the
+                // same vsync edge as sof), so everything queued belongs to
+                // the CURRENT back mask — the old !swap_pending gate just
+                // left the backlog undrawn until after the swap, smearing it
+                // one frame late into the wrong mask.
+                D_IDLE: if (!rf_empty) begin
+                    rec_cur <= rfifo[rrp[9:0]];
+                    rrp <= rrp + 11'd1;
                     dstate <= D_SETUP;
                 end
                 D_SETUP: begin
@@ -148,7 +161,7 @@ module overlay_mask #(
             dstate <= D_IDLE;
             swap_pending <= 1'b0;
             front_sel <= 1'b0;
-            rrp <= 9'd0;
+            rrp <= 11'd0;
         end
     end
 
