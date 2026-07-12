@@ -30,7 +30,12 @@
 
 module event_fifo #(
     parameter DW = 15,                  // {strong[14], kind[13:12], x[11:0]}
-    parameter AW = 11                   // depth 2^AW
+    parameter AW = 11,                  // depth 2^AW
+    // Marker headroom (see comment at the old localparam site below) and the
+    // shedding hysteresis window; parameters so testbenches can shrink the
+    // data capacity and exercise real saturation dynamics.
+    parameter RESERVE = 1152,
+    parameter DROP_HYST = 448           // 0 = legacy per-event thinning
 ) (
     input  wire          clk,
     input  wire          rst,
@@ -52,7 +57,13 @@ module event_fifo #(
     reg [DW-1:0] mem [0:DEPTH-1];
     reg [AW:0] wp, rp;
 
-    localparam integer RESERVE = 64;    // marker headroom (see header)
+    // Marker headroom (RESERVE): EVERY row marker of a maximally-lagged frame
+    // must fit, or overload starts eating EOR markers and the labeller
+    // silently loses whole rows (observed live at 720p60 on dense content:
+    // segments only in the top quarter of the frame — the bottom rows' EORs
+    // were hard-dropped). Markers resident <= frame rows + EOF = 1081 for
+    // 1080p, so 1152 makes marker loss structurally impossible. Data
+    // capacity 2048-1152 = 896.
 
     wire [AW:0] count = wp - rp;
     assign empty = (count == 0);
@@ -63,7 +74,26 @@ module event_fifo #(
     // Kind sits at [13:12] (strong is the extra top bit [14]), so read it there.
     wire [1:0] wkind = wdata[13:12];
     wire is_data = (wkind == 2'd1) || (wkind == 2'd2);
-    wire drop = push && ((drop_mode && afull && is_data) || full_hard);
+    // Shedding policy (drop_mode): per-event thinning at afull looks graceful
+    // but is catastrophic for LINE detection — random drops at rate p cut
+    // every run into ~(1-p)/p px fragments, all under pix_th=16 once p
+    // exceeds ~6%, so a saturated stretch of frame yields ZERO segments (the
+    // live "bottom loss"). Instead shed with hysteresis: once afull trips,
+    // drop data DOWN TO the low watermark, then pass everything until afull
+    // trips again. Same average loss, but the kept stretches are contiguous
+    // (hundreds of events), so runs inside them stay intact and still form
+    // segments — overload thins the result instead of wiping it.
+    reg shedding;
+    wire relow = (count <= DEPTH - RESERVE - DROP_HYST);
+    always @(posedge clk) begin
+        if (en) begin
+            if (afull) shedding <= 1'b1;
+            else if (relow) shedding <= 1'b0;
+        end
+        if (rst) shedding <= 1'b0;
+    end
+    wire shed = (DROP_HYST == 0) ? afull : (shedding || afull);
+    wire drop = push && ((drop_mode && shed && is_data) || full_hard);
     assign dropped = drop && en;
     assign front = mem[rp[AW-1:0]];
 
