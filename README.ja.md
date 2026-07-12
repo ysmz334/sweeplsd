@@ -120,6 +120,14 @@ https://github.com/user-attachments/assets/b0a95a7a-fac0-4c62-ac6a-86731b2cbbeb
 - `examples/vanishing_points.cpp` — 非較正の逐次RANSAC消失点（内部パラメータ不要）
 - `examples/opencv_detect.cpp` — ヘッダオンリーアダプタ経由で OpenCV コードから利用
 
+## 評価
+
+`docs/` の内容はすべて再現可能です: 合成グラウンドトゥルースの生成、速度ベンチマーク、
+等方性テスト、下流タスクとしての消失点評価（York Urban 屋外・NYU 屋内）を、本家 LSD と
+ED_Lib EDLines に対して実施しています。第三者の検出器コードは**同梱していません**
+（LSD は AGPL のため）; ベンチマークハーネスが `-DSWEEPLSD_BUILD_BENCH=ON` の
+configure 時に取得します。
+
 ## このプロジェクトについて
 
 SweepLSD の設計は清水義泰（2014年修士論文、国内学会で OPLSD として発表。論文自体は
