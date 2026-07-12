@@ -73,7 +73,11 @@ module tb_backend;
     wire [87:0] rec_bb = {rec_minx, rec_minx_y, rec_maxx, rec_maxx_y,
                           rec_miny, rec_miny_x, rec_maxy, rec_maxy_x};
 
-    backend #(.XW(XW)) dut (
+    backend
+`ifndef GL
+        #(.XW(XW))
+`endif
+    dut (
         .clk(clk), .rst(rst), .en(ce),
         .width(W[XW-1:0]), .height(H[XW-1:0]), .pix_th(18'd`PIX_TH),
         .hyst_on(`HYST_ON != 0), .hyst_strong_min(18'd`HYST_MIN),
@@ -137,7 +141,11 @@ module tb_backend;
         end
         if (cyc > 20000000) begin
             $display("FAIL: watchdog timeout (state=%0d ev %0d/%0d)",
+                     `ifdef GL
+                     6'd63, ev_i, ev_n);
+`else
                      dut.state, ev_i, ev_n);
+`endif
             $finish;
         end
     end

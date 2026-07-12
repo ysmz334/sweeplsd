@@ -518,6 +518,67 @@ markers), plus a hard-full guard that drops ANY push at count==DEPTH — a
 sheared row recovers through the normal end-record/restart path, silent
 ring corruption does not.
 
+**Marker reserve 64 → 1152 (live bottom-loss hunt).** 64 rows of labeller lag
+is not a live bound: on real HDMI content (noisier than the PNG-derived
+vectors) the labeller can trail the video far enough that the resident-marker
+count is only bounded by the frame itself (rows + EOF = 1081 at 1080p).
+RESERVE = 1152 makes EOR loss *structurally* impossible at the cost of data
+capacity (2048 − 1152 = 896 slots). This was introduced while chasing the
+live "bottom loss" and did NOT fix it — the real cause was the shedding
+policy below — but it is kept: marker loss shears row bookkeeping (the freeze
+class of bug), data loss only thins detections.
+
+**Hysteretic shedding (live bottom-loss fix, diag-v11/v12 2026-07-11).** The
+live symptom: segments only above a per-image "cut row", nothing below, cut
+row stable per scene. LED probes on the board bisected it — data events still
+enter the FIFO below the cut (front-end alive), zero records emerge
+(back-end starved), label pool never exhausts, and the first dropped data
+event of each pass lands exactly at the cut row (per-image prediction
+confirmed on IMGP1077/1075/1062). Mechanism: once the backlog reaches the
+data watermark, the old policy dropped data events *individually* while
+`afull` held. Random per-event loss at rate p cuts every run into fragments
+of expected length (1−p)/p px — under pix_th = 16 for any sustained p ≳ 6% —
+so a saturated stretch of frame yields ZERO segments, not thinned ones
+(reproduced in RTL: 50% injected duty below row 300 → quartiles 464/58/0/0
+vs clean 464/433/701/429; even 12.5% → 464/86/40/24). Fix in `event_fifo`:
+`shedding` latches at `afull` and drops data down to a low watermark
+(`DROP_HYST` = 448 below the data watermark), then passes everything until
+`afull` trips again. Same average loss, but kept stretches are contiguous
+(hundreds of events), so runs inside them stay intact and still form
+segments — sustained overload now thins instead of wiping. Trade-off: on
+short transient bursts the drain-to-low-watermark overshoot drops somewhat
+more than per-event thinning did (IMGP1032 burst replay: 2,201 vs 2,238
+records of 2,617 golden) — accepted, since the live failure mode was total.
+Known residual: keep/drop bands are shorter than a video row at the 2048
+depth, so near-vertical lines still fragment inside a saturated band; the
+full remedy is the BRAM FIFO depth increase above. Zero-`afull` frames are
+bit-identical under either policy (shedding cannot latch without `afull`),
+so the corpus' 149 lossless frames and all `drop_mode=0` uses are untouched.
+
+**XST FSM-extraction mis-synthesis (the live "bottom loss", root cause,
+2026-07-12).** The live board lost all detections below a per-image "cut row"
+on dense scenes. The full diagnostic chain (LED probes v11-v18, then a UART
+telemetry channel) established: supply identical to simulation (event count
+matched to the exact event), no label exhaustion, first FIFO drop at the cut
+row — and finally that ~92 % of judge dispatches never received `j_done`
+(watchdog fires ≈ 2× dispatches, 70 % of the frame budget burnt stalling,
+42 records emitted where RTL emits 2,201 on IMGP1032). A gate-level
+simulation of the XST netlist (netgen -sim + iverilog + unisims) reproduced
+the board EXACTLY — 42 records, an exact prefix of the RTL stream — proving
+the netlist deviates from the RTL functionally: deterministic, load-dependent,
+timing-Score-0, invisible to RTL simulation. Bisected: the standalone
+synthesized judge replays the failing dispatches perfectly, and resynthesizing
+with **`-fsm_extract NO`** restores RTL-identical gate-level behaviour
+(123 = 123 records at the 300 k-cycle checkpoint) — XST's FSM re-encoding
+mis-synthesizes the big back-end FSM. The option is now set (with a warning
+comment) in `boards/atlys/build_rx.sh`; do not remove it without re-running
+the gate-level frame regression. Judge worst-case legitimate latency was
+measured at 61+ cycles in the same hunt, so the rescue watchdog window is
+255 cycles (63 would clip legitimate closes). Note: this bug predates every
+live build; historical board-vs-sim discrepancies (including the early
+"top-quarter only at 720p60" observation and the "judge request loss"
+anomaly) should be reinterpreted in its light.
+
 ## Overlay (demo path, outside the verified core)
 
 Segments finalised during frame N are drawn into a **half-resolution 1-bit

@@ -26,6 +26,7 @@ verilog work "../../../core/backend.v"
 verilog work "../../../core/judge_unit.v"
 verilog work "../../../core/sweep_core.v"
 verilog work "../live_core.v"
+verilog work "../uart_telemetry.v"
 verilog work "../overlay_mask.v"
 verilog work "../xapp495/rx/serdes_1_to_5_diff_data.v"
 verilog work "../xapp495/rx/phsaligner.v"
@@ -44,9 +45,14 @@ EOF
 
 cat > top_rx.xst <<EOF
 run -ifn top_rx.prj -ifmt mixed -top atlys_rx_top -ofn top_rx.ngc -ofmt NGC
--p xc6slx45-3-csg324 -opt_mode Speed -opt_level 1
+-p xc6slx45-3-csg324 -opt_mode Speed -opt_level 1 -fsm_extract NO
 EOF
 
+# -fsm_extract NO: XST's FSM re-encoding mis-synthesizes the back-end FSM —
+# the netlist deviates from RTL under load (judge dispatches stop completing
+# after ~40 closes; gate-level sim reproduces the live board's bottom-loss
+# exactly, and -fsm_extract NO restores RTL-identical behaviour). Do NOT
+# re-enable without re-running the gate-level frame regression.
 echo "== xst =="
 xst -ifn top_rx.xst < /dev/null
 echo "== ngdbuild =="
