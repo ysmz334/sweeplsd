@@ -36,6 +36,9 @@ rtl/hw_sim_out/
 # repo — keep it on disk, never commit it.
 rtl/boards/atlys/xapp495/
 
+# Development retrospective notes (Japanese working material, kept local).
+振り返り/
+
 # Large golden-vector sets — regenerable with rtl/tools/dump_vectors (see
 # rtl/DESIGN.md). vectors_big/ also dumps raw Waseda image pixels, which are
 # not redistributed here. Only the small self-contained synthetic set
