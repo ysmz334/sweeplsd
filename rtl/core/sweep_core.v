@@ -67,7 +67,18 @@ module sweep_core #(
     output wire [40:0]     rec_xss, rec_yss, rec_xys,
     // (f) bbox extreme points of the label (see backend.v)
     output wire [10:0]     rec_minx, rec_minx_y, rec_maxx, rec_maxx_y,
-    output wire [10:0]     rec_miny, rec_miny_x, rec_maxy, rec_maxy_x
+    output wire [10:0]     rec_miny, rec_miny_x, rec_maxy, rec_maxy_x,
+
+    // debug: back-end FSM state + conditions (live-wedge diagnosis)
+    output wire [5:0]      dbg_be_state,
+    output wire [2:0]      dbg_be_cond,
+    output wire            dbg_push,      // event entering the FIFO this cycle
+    output wire            dbg_push_eor,  // ... and it is an EOR/EOF marker
+    output wire            dbg_pop,       // backend popping the FIFO this cycle
+    output wire            dbg_jwd_fire,  // judge watchdog rescuing
+    output wire            dbg_fl_zero,
+    output wire            dbg_jstall,
+    output wire            dbg_jf
 );
 
     // ---- walker -------------------------------------------------------------
@@ -188,7 +199,17 @@ module sweep_core #(
         .rec_minx(rec_minx), .rec_minx_y(rec_minx_y),
         .rec_maxx(rec_maxx), .rec_maxx_y(rec_maxx_y),
         .rec_miny(rec_miny), .rec_miny_x(rec_miny_x),
-        .rec_maxy(rec_maxy), .rec_maxy_x(rec_maxy_x)
+        .rec_maxy(rec_maxy), .rec_maxy_x(rec_maxy_x),
+        .dbg_state(dbg_be_state),
+        .dbg_cond(dbg_be_cond),
+        .dbg_jwd_fire(dbg_jwd_fire),
+        .dbg_fl_zero(dbg_fl_zero),
+        .dbg_jstall(dbg_jstall),
+        .dbg_jf(dbg_jf)
     );
+
+    assign dbg_push = evr_v;
+    assign dbg_push_eor = evr_v && (evr_w[13:12] == 2'd3 || evr_w[13:12] == 2'd0);
+    assign dbg_pop = fifo_pop;
 
 endmodule

@@ -60,7 +60,16 @@ module backend #(
     // (f) bbox extreme points: the pixel that attained each extreme of the
     // label's bounding box (companion coordinate included)
     output reg  [10:0]     rec_minx, rec_minx_y, rec_maxx, rec_maxx_y,
-    output reg  [10:0]     rec_miny, rec_miny_x, rec_maxy, rec_maxy_x
+    output reg  [10:0]     rec_miny, rec_miny_x, rec_maxy, rec_maxy_x,
+
+    // debug: current FSM state + ingest/handshake conditions (live-wedge
+    // diagnosis; no logic depends on these)
+    output wire [5:0]      dbg_state,
+    output wire [2:0]      dbg_cond,   // {ev_empty, rows_ready, eof_seen}
+    output wire            dbg_jwd_fire, // judge watchdog rescuing (should be 0)
+    output wire            dbg_fl_zero,  // label pool exhausted right now
+    output wire            dbg_jstall,   // judge wait beyond legitimate latency
+    output wire            dbg_jf        // judge request in flight
 );
 
     localparam [1:0] K_EOF = 2'd0, K_INT = 2'd1, K_END = 2'd2, K_EOR = 2'd3;
@@ -284,6 +293,8 @@ module backend #(
     );
 
     reg         jf_inflight;
+    reg [8:0]   jwd;               // judge watchdog (see below the case)
+    reg [1:0]   jretry;            // watchdog reissue attempts
     reg [10:0]  f_sx, f_sy, f_ex, f_ey;
     reg [17:0]  f_n;
     reg [17:0]  f_scnt;                // (d) strong count of the judged segment
@@ -407,6 +418,14 @@ module backend #(
         S_HALT   = 6'd31;
 
     reg [5:0] state;
+    assign dbg_state = state;
+    assign dbg_cond = {ev_empty, ingest_y >= proc_y + 13'd2, eof_seen};
+    assign dbg_jwd_fire = jf_inflight && !j_done && (jwd == 9'd255);
+    assign dbg_jstall = jf_inflight && !j_done && (jwd > 9'd16);
+    assign dbg_jf = jf_inflight;
+    // gated off S_INIT: fl_count holds the PREVIOUS pass's value until the
+    // init sweep finishes, so an exhausted pass would false-trigger the next
+    assign dbg_fl_zero = (state != S_INIT) && (fl_count == 11'd0);
 
     // POP+EV fused ingest: the event_fifo is first-word-fall-through, so the
     // front (ev_kind/ev_x/ev_strong) is combinationally valid whenever
@@ -423,8 +442,21 @@ module backend #(
     // labeller reads; the labeller lags: it only starts row proc_y once
     // ingest_y >= proc_y+2). Gated off during S_INIT (the tag-invalidate
     // sweep owns the ftag funnel) and after EOF.
+    //
+    // PIPELINED (timing): the FIFO front is a 2048:1 distributed-RAM read
+    // mux; feeding the bank-write address/data straight from it was the
+    // worst path of the whole pixel-clock domain (13.2 ns of the 13.4 ns
+    // budget). The pop stage now only LATCHES the front into the ie_*
+    // registers; the apply stage files the event one cycle later. The flow
+    // -control compare lags the EOR apply by one cycle, so the pop stalls
+    // for one bubble while a marker sits in ie_* (1 cycle per row).
+    reg        ie_v;                     // ingest apply-stage valid
+    reg [1:0]  ie_kind;
+    reg [10:0] ie_x;
+    reg        ie_strong;
+    wire ie_marker = ie_v && (ie_kind == K_EOR || ie_kind == K_EOF);
     wire ing_pop = (state != S_INIT) && !eof_seen && !ev_empty &&
-                   (ingest_y <= proc_y + 13'd2);
+                   (ingest_y <= proc_y + 13'd2) && !ie_marker;
     assign ev_pop = ing_pop;
 
     wire [12:0] py_m1 = py - 13'd1;
@@ -1398,36 +1430,46 @@ module backend #(
         // single-write-port rule). During a dense row's labelling the FIFO
         // drains into the banks at 1 event/cycle instead of backing up, and
         // the labeller no longer pays the 1-cycle-per-event S_POP tax.
+        // stage P: latch the FIFO front (the giant read mux ends HERE)
         if (ing_pop) begin
-            case (ev_kind)
+            ie_v <= 1'b1;
+            ie_kind <= ev_kind;
+            ie_x <= ev_x[10:0];
+            ie_strong <= ev_strong;
+        end else begin
+            ie_v <= 1'b0;
+        end
+        // stage A: file the latched event (one cycle after its pop)
+        if (ie_v) begin
+            case (ie_kind)
                 K_INT, K_END: begin
                     ftag_we <= 1'b1;
                     ftag_wb <= (ing_b == 2'd0) ? 4'b0001 :
                                (ing_b == 2'd1) ? 4'b0010 :
                                (ing_b == 2'd2) ? 4'b0100 : 4'b1000;
-                    ftag_wa <= ev_x[10:0];
+                    ftag_wa <= ie_x;
                     ftag_wd <= ingest_y;
                     case (ing_b)
-                        2'd0: f_kind0[ev_x[10:0]] <= ev_kind;
-                        2'd1: f_kind1[ev_x[10:0]] <= ev_kind;
-                        2'd2: f_kind2[ev_x[10:0]] <= ev_kind;
-                        default: f_kind3[ev_x[10:0]] <= ev_kind;
+                        2'd0: f_kind0[ie_x] <= ie_kind;
+                        2'd1: f_kind1[ie_x] <= ie_kind;
+                        2'd2: f_kind2[ie_x] <= ie_kind;
+                        default: f_kind3[ie_x] <= ie_kind;
                     endcase
-                    if (ev_kind == K_INT) begin
+                    if (ie_kind == K_INT) begin
                         case (ing_l)
                             2'd0: begin
-                                xl0[xcnt0[10:0]] <= ev_x[10:0];
-                                xs0[xcnt0[10:0]] <= ev_strong;
+                                xl0[xcnt0[10:0]] <= ie_x;
+                                xs0[xcnt0[10:0]] <= ie_strong;
                                 xcnt0 <= xcnt0 + 12'd1;
                             end
                             2'd1: begin
-                                xl1[xcnt1[10:0]] <= ev_x[10:0];
-                                xs1[xcnt1[10:0]] <= ev_strong;
+                                xl1[xcnt1[10:0]] <= ie_x;
+                                xs1[xcnt1[10:0]] <= ie_strong;
                                 xcnt1 <= xcnt1 + 12'd1;
                             end
                             default: begin
-                                xl2[xcnt2[10:0]] <= ev_x[10:0];
-                                xs2[xcnt2[10:0]] <= ev_strong;
+                                xl2[xcnt2[10:0]] <= ie_x;
+                                xs2[xcnt2[10:0]] <= ie_strong;
                                 xcnt2 <= xcnt2 + 12'd1;
                             end
                         endcase
@@ -1440,6 +1482,39 @@ module backend #(
                 end
                 default: eof_seen <= 1'b1;   // K_EOF
             endcase
+        end
+
+        // ---- judge watchdog (defence in depth) -----------------------------
+        // If the judge FSM ever loses a request (observed live: glitches on
+        // the judge datapath corrupt its state and the done pulse never
+        // comes), jf_inflight would hold jfree=0 forever and freeze the pass
+        // in S_CONT/S_MEXEC/S_TERM. A healthy judge answers in ~70-210
+        // cycles; after 511 cycles with a request in flight and no
+        // completion, REISSUE the request — the operand registers (j_*) are
+        // still held and a glitched judge self-heals to S_IDLE, so a retry
+        // normally succeeds and the segment is not lost (a long stall per
+        // loss also starves the labeller and was costing the bottom of the
+        // frame). After 3 failed retries the record is dropped instead.
+        // Never fires in a healthy system.
+        if (jf_inflight && !j_done) begin
+            jwd <= jwd + 9'd1;
+            if (jwd == 9'd255) begin
+                // 255-cycle window: the judge's data-dependent worst
+                // latency EXCEEDS 63 (partial-product loops; RTL-measured
+                // jmax hit a 63-cy window on the corpus), so 63 killed
+                // legitimate closes. 255 = ~4x the estimated worst, still
+                // 8x cheaper per rescue than the original 511x4.
+                jwd <= 9'd0;
+                if (jretry != 2'd1) begin
+                    j_start <= 1'b1;        // reissue with the held operands
+                    jretry <= jretry + 2'd1;
+                end else begin
+                    jf_inflight <= 1'b0;    // unrecoverable: drop the record
+                end
+            end
+        end else begin
+            jwd <= 9'd0;
+            jretry <= 2'd0;
         end
 
         // in-flight judge completion (overrides the default rec_valid clear;
@@ -1477,6 +1552,9 @@ module backend #(
             init_a <= 12'd0;
             j_start <= 1'b0;
             jf_inflight <= 1'b0;
+            jwd <= 9'd0;
+            jretry <= 2'd0;
+            ie_v <= 1'b0;
             rec_valid <= 1'b0;
         end
     end
