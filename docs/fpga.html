@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SweepLSD — on real hardware (FPGA)</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body><div class="wrap">
+
+<h1>On real hardware (FPGA)</h1>
+<p class="sub">The thesis proposed the algorithm for hardware but never built it.
+This page is the missing half: SweepLSD running live on 2009-era silicon.</p>
+<nav><a href="index.html">Algorithm</a> <a href="benchmarks.html">Speed</a>
+<a href="evaluation.html">Quality</a> <a href="vp_evaluation.html">Vanishing points</a>
+<a href="fpga.html"><b>FPGA</b></a> <a href="https://github.com/ysmz334/sweeplsd">Repository</a></nav>
+
+<div class="key"><b>What runs.</b> A Digilent Atlys (Xilinx <b>Spartan-6 LX45</b>, 2009)
+takes HDMI in, detects line segments <i>on-chip</i>, and puts HDMI out with every frame's
+segments overlaid in green — at Full-HD <b>1080p30</b> (and 720p60), in a single
+recovered-pixel-clock domain at 74.25&nbsp;MHz, with <b>no frame buffer and no external
+memory</b>. The detector's entire state is a few line buffers in on-chip block RAM
+(~70&nbsp;KiB — the budget the 2014 thesis targeted).</div>
+
+<video controls preload="metadata" style="width:100%;border-radius:8px;border:1px solid #dde1e7;margin-top:12px"
+  src="https://github.com/user-attachments/assets/b0a95a7a-fac0-4c62-ac6a-86731b2cbbeb"></video>
+<p class="sub" style="margin-top:4px">Live demo: 1080p30 HDMI video passes through the board while
+segments are detected and overlaid on-chip.
+(<a href="https://github.com/user-attachments/assets/b0a95a7a-fac0-4c62-ac6a-86731b2cbbeb">direct video link</a>
+if the embed does not play.)</p>
+
+<h2>1. Two hardware implementations, one contract</h2>
+<p>The C++ library was re-expressed twice, and both forms are held to the same acceptance
+gate as the software:</p>
+<table><thead><tr><th>form</th><th style="text-align:left">what it is</th><th style="text-align:left">status</th></tr></thead><tbody>
+<tr><td><code>hls/</code></td><td style="text-align:left">the full detector as synthesizable <b>HLS C++</b> (Vitis HLS), plus a tool-free g++ shim so the model runs as ordinary C++</td><td style="text-align:left">Artix-7 reports: front-end II=1 at 100&nbsp;MHz; C-sim and C/RTL co-sim clean</td></tr>
+<tr><td><code>rtl/</code></td><td style="text-align:left">hand-written, portable <b>Verilog RTL</b>: streaming front-end → sparse event FIFO → labelling back-end → integer judge</td><td style="text-align:left">runs on the Atlys; verified as below</td></tr>
+</tbody></table>
+<p>The contract is <b>SW == HLS == RTL, bit-exact</b>: golden-vector parity testbenches
+(Icarus Verilog) hold the RTL to the HLS C model and the C++ <code>detect()</code> reference,
+including 1920×1080 photographs — the full 150-photo corpus matches segment-for-segment in
+the hardware configuration. The <code>improved()</code> refinements that fit the
+streaming/integer model — strict NMS, half-pixel lattice, bounding-box endpoints, streaming
+hysteresis, curve rejection, border rejection — are all in the hardware (sub-pixel NMS stays
+software-only: it does not fit the judge's 128-bit envelope).</p>
+
+<h2>2. Honest limits: dense-frame overload</h2>
+<p>The back-end labels <i>events</i> (edge pixels), so a maximally dense row can outrun it.
+The event FIFO absorbs bursts and, when saturated, sheds data events rather than stalling
+live video. After a sequence of measured drain optimizations (each bit-exact, each verified
+by a ground-truth burst simulation at real 1080p30 timing), corpus-wide loss went from
+<b>~52&nbsp;% of segments on the first live build to ≈0.2&nbsp;%</b>, concentrated in a
+single pathologically dense frame; at a deeper FIFO the whole corpus is provably lossless in
+simulation. The remaining step on this 2009 part is a BRAM-based FIFO to afford that depth.
+Details and the measurement methodology: <code>rtl/DESIGN.md</code>, "Overflow reality
+check".</p>
+
+<h2>3. The bug that was not in the RTL</h2>
+<p>The hardest bug of the bring-up never appeared in simulation: the live board lost all
+detections below a per-image "cut row" on dense scenes, deterministically, with timing
+closed at Score&nbsp;0 and RTL simulation clean. Per-pass UART telemetry showed the board's
+judge handshakes dying where simulation's did not — and a <b>gate-level simulation of the
+synthesized netlist reproduced the board exactly</b>: XST's FSM re-encoding had
+mis-synthesized the back-end's large FSM. One synthesis option (<code>-fsm_extract NO</code>)
+restores RTL-identical netlist behaviour; every build script now sets it, with a warning.</p>
+<div class="note"><b>Two portable lessons.</b> (1) "Timing Score 0 + RTL sim clean" does not
+imply the netlist computes what the RTL does — for deterministic board-only anomalies, run
+the <i>netlist</i> in simulation before blaming physics. (2) Cheap always-on instrumentation
+(six per-pass counters over UART) turns "the board misbehaves" into a one-line diff against
+the same counters in simulation. The full war story is in <code>rtl/DESIGN.md</code>.</div>
+
+<h2>4. Reproduce it</h2>
+<p>The RTL parity suite runs with the open-source Icarus Verilog on the tracked synthetic
+vectors: <code>sh rtl/tb/run_tb.sh tb_sweep_core core/*.v</code> (per-stage and full-chain
+testbenches; Full-HD golden vectors are regenerated locally with
+<code>sweeplsd_dump_vectors</code> since the photographs are not redistributed). The board
+bitstream needs Xilinx ISE 14.7 and the XAPP495 HDMI PHY, fetched separately — build steps,
+licensing notes, and the diagnostic LED/UART map are in
+<a href="https://github.com/ysmz334/sweeplsd/blob/main/rtl/boards/atlys/README.md">rtl/boards/atlys/README.md</a>;
+architecture and the verification story in
+<a href="https://github.com/ysmz334/sweeplsd/blob/main/rtl/DESIGN.md">rtl/DESIGN.md</a>.</p>
+
+<footer>SweepLSD documentation. Board: Digilent Atlys (Spartan-6 XC6SLX45-3), ISE 14.7,
+single 74.25&nbsp;MHz recovered-clock domain; BRAM ≈140&nbsp;KiB total (detector ~70&nbsp;KiB +
+overlay mask + video I/O) of 261&nbsp;KiB — no external memory.</footer>
+</div></body></html>

@@ -12,7 +12,8 @@
 <p class="sub">One sweep, all segments. A one-pass, O(width)-memory line segment detector
 with an integer-only streaming core.</p>
 <nav><a href="index.html"><b>Algorithm</b></a> <a href="benchmarks.html">Speed</a>
-<a href="evaluation.html">Quality</a> <a href="vp_evaluation.html">Vanishing points</a> <a href="https://github.com/ysmz334/sweeplsd">Repository</a></nav>
+<a href="evaluation.html">Quality</a> <a href="vp_evaluation.html">Vanishing points</a>
+<a href="fpga.html">FPGA</a> <a href="https://github.com/ysmz334/sweeplsd">Repository</a></nav>
 
 <img class="wide" src="assets/hero_segments.png" alt="SweepLSD segments on a Full-HD photo">
 <p class="sub" style="margin-top:4px">Full-HD photo, 3034 segments in ~17 ms (one detector sweep, single thread).</p>
@@ -67,6 +68,9 @@ output:</p>
 floating point appears only in the once-per-segment finalization (PCA, endpoint projection).
 There are <b>no SIMD intrinsics anywhere</b> — the kernels are written so GCC/Clang
 auto-vectorize them, which keeps the code readable and portable.</p>
+<p>The hardware-friendliness is not hypothetical: the detector
+<a href="fpga.html">runs live on a 2009-era FPGA</a> — HDMI in → detect → overlay out at
+1080p30, with no frame buffer.</p>
 
 <h2>3. Faithful baseline + measured improvements</h2>
 <p><code>Params{}</code> reproduces the 2014 thesis behaviour. <code>Params::improved()</code>
