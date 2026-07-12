@@ -18,11 +18,14 @@
 // milestone 3 extends with rgb2gray + sweep_core + overlay between the
 // decoder's RGB and the encoder's inputs.
 //
-// LEDs: 7 = RX PLL locked (TMDS clock present)
-//       6/5/4 = red/green/blue channel phase-aligned (all on = good signal)
-//       5 = DE seen, 4 = misalignment latch (should stay OFF)
-//       3 = event-drop latch (content denser than the labelling engine —
-//           overlay thins locally, video unaffected), 2..0 = segment count
+// LEDs (diagnostic map, kept as a permanent feature — see the board README):
+//   7    = RX PLL locked (TMDS clock present)
+//   6    = END-record heartbeat (toggles once per completed detector pass)
+//   5    = event-drop latch (content denser than the labelling engine can
+//          drain — overlay thins locally, video unaffected)
+//   4    = a data event was dropped during the last completed pass
+//   3..0 = log2(judge-stall cycles in the last pass) - 8  (0 = < 256 cy)
+// The same per-pass counters stream over the USB-UART (uart_telemetry.v).
 
 module atlys_rx_top (
     input  wire       clk100,         // on-board 100 MHz (EDID I2C sampling)
@@ -268,16 +271,12 @@ module atlys_rx_top (
         end
     end
 
-    // DIAGNOSTIC LED MAP v6 (temporary):
-    //   7 = RX PLL lock
-    //   6 = END-record heartbeat (flicker/dim = passes completing)
-    //   5 = DEATH latched (a pass stopped popping without its END record;
-    //       held until the next END — should now stay OFF)
-    //   4 = judge WATCHDOG fired this pass (sticky, cleared at pass start;
-    //       ON = the judge is still glitching and the watchdog is papering
-    //       over it at 4095 cycles per rescue — must stay OFF)
-    //   3 = event-drop latch (density ceiling; thinning, informational)
-    //   2..0 = segment count LSBs of the last completed pass
+    // Liveness probes (built during the 2026-07 live bottom-loss hunt, kept):
+    //   end_hb        — END-record heartbeat (drives LED6)
+    //   death_latched — a pass stopped popping without emitting its END
+    //   jwd_latch     — judge watchdog fired this pass
+    // The two latches are spare probes (not wired to LEDs in the current
+    // map); synthesis trims whatever stays unconnected.
     reg end_hb;
     reg [19:0] act_pop_cnt;
     wire act_pop = (act_pop_cnt != 20'd0);
@@ -310,26 +309,15 @@ module atlys_rx_top (
             jwd_latch <= 1'b0;
         end
     end
-    // v9: judge-loss MAGNITUDE — LED4..0 = watchdog fires PER PASS, latched at
-    // each end-record (saturating at 31). A stable readable number:
-    //   0        = no losses
-    //   1..5     = losses trivial (~0.1% of a frame in stalls) -> the bottom
-    //              loss is NOT judge-stall-driven
-    //   31 (all) = thousands per frame -> the labeller is stall-starved
-    //   7 = lock   6 = END heartbeat   5 = event-drop latch
-    // v18: DRAIN-THEFT measurement. v17 proved supply == sim (both 1077 and
-    // 1032 land in the exact sim log2 bucket) while the board still wipes
-    // the bottom -- the back-end's effective drain must be a fraction of the
-    // sim's. Judge stalls are the prime suspect (LED4 of v17: jwd fires on
-    // exactly the loss images). This build (a) shortens the watchdog rescue
-    // 511->63 cy / 2 tries, (b) counts the cycles the labeller waits on the
-    // judge BEYOND legitimate latency (jwd > 16). Latched at each END:
-    //   4    = any data event dropped this pass
-    //   3..0 = log2(judge-stall cycles this pass) - 8, 0 = < 256 cy
-    // Interpretation on IMGP1077: explaining the wipe needs a >= 2^20-cycle
-    // theft (code 12+); code <= 9 (< 130k cy, 5%) = stalls do NOT dominate
-    // and the drain thief is elsewhere (state corruption class).
-    // Per-pass counters (pixel domain) + UART snapshot (see uart_telemetry.v).
+    // Per-pass diagnostic counters (pixel domain), latched into diag_disp and
+    // the UART snapshot at each END record:
+    //   diag_disp[4]   = any data event dropped this pass
+    //   diag_disp[3:0] = log2(judge-stall cycles this pass) - 8 (0 = <256 cy)
+    // The same six counters (P/D/J/S/W/R) go out as one ASCII line per pass
+    // through uart_telemetry.v. This instrumentation is what made the XST
+    // FSM mis-synthesis diagnosable — board counters compared against the
+    // identical counters in RTL simulation (see rtl/DESIGN.md) — and it
+    // stays as a permanent feature.
     reg [23:0] jscnt, pcnt, dcnt, jdcnt, wcnt, rcnt;
     reg jf_q, drop_pass;
     reg [4:0] diag_disp;

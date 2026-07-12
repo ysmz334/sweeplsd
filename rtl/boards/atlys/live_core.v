@@ -127,26 +127,26 @@ module live_core #(
 
     // ---- pass start control ---------------------------------------------------
     reg eof_seen;
-    reg [2:0] skip_cnt;   // DIAG: widened, kill window 3->8 vsyncs
-    wire force_start = vs_fall && stable_now && (skip_cnt >= 3'd7);
+    reg [1:0] skip_cnt;   // skipped-vsync counter (force a restart after 3)
+    wire force_start = vs_fall && stable_now && (skip_cnt >= 2'd2);
     always @(posedge clk) begin
         frame_start <= (vs_fall && stable_now && !busy && eof_seen) || force_start;
         if (rec_valid && rec_n == 18'd0) eof_seen <= 1'b1;
         if (vs_fall) begin
             if (busy || !eof_seen) begin
-                if (skip_cnt != 3'd7) skip_cnt <= skip_cnt + 3'd1;   // saturate
+                if (skip_cnt != 2'd2) skip_cnt <= skip_cnt + 2'd1;   // saturate
             end else begin
-                skip_cnt <= 3'd0;
+                skip_cnt <= 2'd0;
             end
         end
         if (frame_start) begin
             eof_seen <= 1'b0;
-            skip_cnt <= 3'd0;
+            skip_cnt <= 2'd0;
         end
         if (rst) begin
             frame_start <= 1'b0;
             eof_seen <= 1'b1;      // nothing to drain before the first pass
-            skip_cnt <= 3'd0;
+            skip_cnt <= 2'd0;
         end
     end
 

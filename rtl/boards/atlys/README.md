@@ -86,3 +86,31 @@ djtgcfg prog -d Atlys -i 0 -f build_rx/top_rx.bit
 Connect the HDMI source to **J3** (HDMI IN) and a monitor to **J2** (HDMI OUT).
 The FPGA serves a 720p-preferred DVI EDID on J3, so the source outputs 720p (or
 1080p30 — geometry is auto-measured). Detected segments are overlaid in green.
+
+## Diagnostics (LEDs & UART telemetry)
+
+The live top keeps the instrumentation built while diagnosing the XST FSM
+mis-synthesis — it costs almost nothing and makes board-vs-simulation
+divergence visible immediately.
+
+| LED | meaning |
+|---|---|
+| 7 | RX PLL locked (TMDS clock present) |
+| 6 | END-record heartbeat — toggles once per completed detector pass (flicker = healthy; frozen = the back-end is not finishing passes) |
+| 5 | event-drop latch — content momentarily denser than the labelling engine can drain (overlay thins locally; the video itself is untouched) |
+| 4 | a data event was dropped during the last completed pass |
+| 3..0 | log2(judge-stall cycles in the last pass) − 8 (0 = < 256 cycles) |
+
+The on-board USB-UART carries one ASCII line per detector pass at
+**115200 8N1**:
+
+```
+P xxxxxx D xxxxxx J xxxxxx S xxxxxx W xxxxxx R xxxxxx
+```
+
+— six 24-bit hex counters: events **P**ushed, events **D**ropped, **J**udge
+dispatches, judge **S**tall cycles, judge-**W**atchdog fires, **R**ecords
+emitted. Healthy operation shows `W 000000` and `R` equal to the pass's
+segment count. Comparing a board line against the same counters in RTL
+simulation separates "board-only bug" from "algorithm/RTL bug" in one look —
+this is exactly how the FSM mis-synthesis was isolated.
