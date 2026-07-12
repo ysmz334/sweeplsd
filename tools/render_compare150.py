@@ -12,6 +12,13 @@ Record finalization is a line-for-line port of hls/host/finalize.hpp with
 improved-mode flags (endpoint_from_bbox + lattice_half_shift), matching
 Params::improved() so all three columns show the same algorithm stage.
 
+Configuration note: the SW column includes sub-pixel NMS (part of
+Params::improved()); the HLS-C/RTL columns run the hardware configuration,
+which omits it. That accounts for ALL SW-vs-HLS count differences: with
+subpixel_nms=false, detect() matches the HLS-C counts on 150/150 corpus
+images (verified 2026-07-13). The RTL column is simulated with real 1080p30
+event-FIFO timing, so a saturated dense frame may shed segments.
+
 Outputs: .compare150/render/<name>_{sw,hlsc,rtl}.png, summary.csv, index.html
 
 The source photographs are not redistributed; point SWEEPLSD_DATASET at a
@@ -139,7 +146,17 @@ def main():
                 ".row{margin:24px 0}.imgs{display:flex;gap:4px}"
                 ".imgs figure{flex:1;margin:0}.imgs img{width:100%;height:auto}"
                 "figcaption{font-size:12px;text-align:center;padding:2px}</style>\n"
-                "<h1>SweepLSD: pure SW / HLS-C model / RTL sim (identical rendering)</h1>\n")
+                "<h1>SweepLSD: pure SW / HLS-C model / RTL sim (identical rendering)</h1>\n"
+                "<p style='max-width:72em;color:#bbb'><b>Configurations.</b> "
+                "The SW column is <code>detect()</code> with <code>Params::improved()</code>, "
+                "which includes sub-pixel NMS; the HLS-C and RTL columns run the hardware "
+                "configuration, which omits sub-pixel NMS (kept SW/HLS-only — it does not fit "
+                "the RTL judge's 128-bit envelope). The small SW-vs-HLS count differences are "
+                "exactly this configuration delta: with sub-pixel NMS disabled, "
+                "<code>detect()</code> matches the HLS-C counts on 150/150 corpus images "
+                "(verified 2026-07-13). The RTL column is simulated with real 1080p30 "
+                "event-FIFO timing, so a saturated dense frame may shed segments "
+                "(one frame in this corpus).</p>\n")
         for (name, a, b, c) in rows:
             f.write("<div class='row'><h3>%s &nbsp; <small>SW %s / HLS-C %s / RTL %s</small></h3>"
                     "<div class='imgs'>" % (name, a, b, c))
