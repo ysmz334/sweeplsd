@@ -4,9 +4,15 @@
 set -e
 cd "$(dirname "$0")"
 
-export XILINX='E:\Xilinx\14.7\ISE_DS\ISE'
-export XILINXD_LICENSE_FILE='C:\Users\MUTSU\.Xilinx'
-export PATH="/e/Xilinx/14.7/ISE_DS/ISE/bin/nt64:/e/Xilinx/14.7/ISE_DS/ISE/lib/nt64:$PATH"
+# Xilinx ISE 14.7 (Spartan-6 needs ISE, not Vivado/Vitis). Defaults are one
+# machine's install — override via the environment if yours differs:
+#   XILINX               Windows-style ISE root (read by the ISE tools)
+#   ISE_BIN              POSIX-style path to ISE bin/nt64 (for PATH)
+#   XILINXD_LICENSE_FILE WebPACK license file or directory
+export XILINX="${XILINX:-E:\Xilinx\14.7\ISE_DS\ISE}"
+export XILINXD_LICENSE_FILE="${XILINXD_LICENSE_FILE:-$USERPROFILE\.Xilinx}"
+ISE_BIN="${ISE_BIN:-/e/Xilinx/14.7/ISE_DS/ISE/bin/nt64}"
+export PATH="$ISE_BIN:${ISE_BIN%/bin/nt64}/lib/nt64:$PATH"
 
 mkdir -p build
 cd build
@@ -33,9 +39,13 @@ EOF
 
 cat > top.xst <<EOF
 run -ifn top.prj -ifmt mixed -top atlys_top -ofn top.ngc -ofmt NGC
--p xc6slx45-3-csg324 -opt_mode Speed -opt_level 1
+-p xc6slx45-3-csg324 -opt_mode Speed -opt_level 1 -fsm_extract NO
 EOF
 
+# -fsm_extract NO is load-bearing: XST's FSM re-encoding mis-synthesizes the
+# detector's back-end FSM (silent functional divergence at Timing Score 0;
+# this top synthesizes the same backend.v). Do NOT remove it — see
+# build_rx.sh and rtl/DESIGN.md ("XST FSM-extraction mis-synthesis").
 echo "== xst =="
 xst -ifn top.xst < /dev/null
 echo "== ngdbuild =="

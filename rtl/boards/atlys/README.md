@@ -65,6 +65,18 @@ sh build.sh        # internal-scene top → build/top.bit       (no xapp495 need
 placement variance, not a logic path; `par -t` is disabled on Spartan-6, so the
 cost table is explored through `map`).
 
+Both scripts synthesize with **`-fsm_extract NO`**, and that option is
+**load-bearing**: XST's FSM re-encoding mis-synthesizes the detector's
+back-end FSM — the build passes timing (Score 0) and RTL simulation is clean,
+yet the gate-level behaviour diverges under load (the live "bottom loss"
+failure). Keep the option if you adapt these scripts to another ISE flow; the
+diagnosis is in [`../../DESIGN.md`](../../DESIGN.md) ("XST FSM-extraction
+mis-synthesis").
+
+The default tool paths at the top of the scripts point at one machine's ISE
+install; override `XILINX`, `ISE_BIN` and `XILINXD_LICENSE_FILE` in the
+environment if yours differ.
+
 Program with Digilent Adept:
 
 ```sh

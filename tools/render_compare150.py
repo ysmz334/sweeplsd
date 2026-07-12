@@ -13,6 +13,9 @@ improved-mode flags (endpoint_from_bbox + lattice_half_shift), matching
 Params::improved() so all three columns show the same algorithm stage.
 
 Outputs: .compare150/render/<name>_{sw,hlsc,rtl}.png, summary.csv, index.html
+
+The source photographs are not redistributed; point SWEEPLSD_DATASET at a
+directory of IMGP*.png Full-HD grayscale images (default: a local path).
 """
 import csv
 import math
@@ -23,7 +26,7 @@ from glob import glob
 from PIL import Image, ImageDraw
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DATASET = "E:/dataset/WasedaDataset"
+DATASET = os.environ.get("SWEEPLSD_DATASET", "E:/dataset/WasedaDataset")
 SW_DIR = os.path.join(ROOT, ".compare150", "sw")
 HLS_DIR = os.path.join(ROOT, "rtl", "tb", "vprof")
 RTL_DIR = os.path.join(ROOT, "rtl", "tb", "rtl150")

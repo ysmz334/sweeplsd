@@ -5,9 +5,15 @@
 set -e
 cd "$(dirname "$0")"
 
-export XILINX='E:\Xilinx\14.7\ISE_DS\ISE'
-export XILINXD_LICENSE_FILE='C:\Users\MUTSU\.Xilinx'
-export PATH="/e/Xilinx/14.7/ISE_DS/ISE/bin/nt64:/e/Xilinx/14.7/ISE_DS/ISE/lib/nt64:$PATH"
+# Xilinx ISE 14.7 (Spartan-6 needs ISE, not Vivado/Vitis). Defaults are one
+# machine's install — override via the environment if yours differs:
+#   XILINX               Windows-style ISE root (read by the ISE tools)
+#   ISE_BIN              POSIX-style path to ISE bin/nt64 (for PATH)
+#   XILINXD_LICENSE_FILE WebPACK license file or directory
+export XILINX="${XILINX:-E:\Xilinx\14.7\ISE_DS\ISE}"
+export XILINXD_LICENSE_FILE="${XILINXD_LICENSE_FILE:-$USERPROFILE\.Xilinx}"
+ISE_BIN="${ISE_BIN:-/e/Xilinx/14.7/ISE_DS/ISE/bin/nt64}"
+export PATH="$ISE_BIN:${ISE_BIN%/bin/nt64}/lib/nt64:$PATH"
 
 mkdir -p build_rx
 cd build_rx

@@ -4,9 +4,12 @@
 set -e
 cd "$(dirname "$0")"
 
-export XILINX='E:\Xilinx\14.7\ISE_DS\ISE'
-export XILINXD_LICENSE_FILE='C:\Users\MUTSU\.Xilinx'
-export PATH="/e/Xilinx/14.7/ISE_DS/ISE/bin/nt64:/e/Xilinx/14.7/ISE_DS/ISE/lib/nt64:$PATH"
+# Xilinx ISE 14.7 — override via XILINX / ISE_BIN / XILINXD_LICENSE_FILE if
+# your install differs (see boards/atlys/build_rx.sh for details).
+export XILINX="${XILINX:-E:\Xilinx\14.7\ISE_DS\ISE}"
+export XILINXD_LICENSE_FILE="${XILINXD_LICENSE_FILE:-$USERPROFILE\.Xilinx}"
+ISE_BIN="${ISE_BIN:-/e/Xilinx/14.7/ISE_DS/ISE/bin/nt64}"
+export PATH="$ISE_BIN:${ISE_BIN%/bin/nt64}/lib/nt64:$PATH"
 
 mkdir -p build
 cd build
@@ -23,9 +26,11 @@ verilog work "../../core/event_pack.v"
 verilog work "../front_synth.v"
 EOF
 
+# -fsm_extract NO matches the board builds (see boards/atlys/build_rx.sh),
+# so front-end figures stay representative of the shipped netlist.
 cat > fe.xst <<EOF
 run -ifn fe.prj -ifmt mixed -top front_synth -ofn fe.ngc -ofmt NGC
--p xc6slx45-3-csg324 -opt_mode Speed -opt_level 1
+-p xc6slx45-3-csg324 -opt_mode Speed -opt_level 1 -fsm_extract NO
 EOF
 
 cat > fe.ucf <<EOF
