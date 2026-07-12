@@ -116,7 +116,9 @@ that fit the streaming/integer model — strict NMS, half-pixel lattice,
 bounding-box endpoints, streaming hysteresis, curve rejection, border
 rejection — are all in the hardware too.
 
-![SweepLSD running live on a Digilent Atlys (Spartan-6 LX45): 1080p30 HDMI video passes through the board while every frame's line segments are detected on-chip and overlaid in green](assets/fpga_demo.gif)
+https://github.com/user-attachments/assets/b0a95a7a-fac0-4c62-ac6a-86731b2cbbeb
+
+*SweepLSD running live on a Digilent Atlys (Spartan-6 LX45): 1080p30 HDMI video passes through the board while every frame's line segments are detected on-chip and overlaid in green.*
 
 Board build & the one third-party dependency (Xilinx XAPP495 HDMI PHY, fetched
 separately) → [`rtl/boards/atlys/README.md`](rtl/boards/atlys/README.md);
