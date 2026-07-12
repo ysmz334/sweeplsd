@@ -65,6 +65,7 @@ module judge_unit (
     localparam S_CMP1   = 4'd8;   //   split so no state chains more than two)
     localparam S_CMP2   = 4'd9;
     localparam S_CMP3   = 4'd10;
+    localparam S_MPS1   = 4'd11;  // (h) registered-threshold compare (timing)
     localparam S_DONE   = 4'd6;
 
     reg [3:0]  state;
@@ -92,7 +93,14 @@ module judge_unit (
     reg         a_pos;            // A > 0 (else no perp reject possible)
     reg [95:0] ha2;             // A^2  (compared against R^2 = r2_r)
     // threshold = 2*mps^2 * N^2 ; N^2 = acc when the N*N product just finished.
-    wire [46:0] mps_thr = acc[41:0] * r_mps;
+    // REGISTERED before the compare (S_MPS1): the combinational 42x5 product
+    // used to chain into the 48-bit compare, the subtract AND the state branch
+    // in a single cycle — the design's worst path (~12.4 ns of the 13.47 ns
+    // pixel-clock budget). On live silicon under dense-content switching that
+    // margin was breached and the corrupted `state` lost the done handshake,
+    // freezing the pass (the frozen-overlay bug). One extra cycle per (h)
+    // evaluation; results are identical.
+    reg [46:0] mps_thr_r;
 
     wire [29:0] a_lo = op_a[29:0];
     wire [29:0] a_hi = {12'd0, op_a[47:30]};
@@ -202,15 +210,9 @@ module judge_unit (
                             state <= S_CMP0;        // (h) off: straight to compare
                         end
                     end
-                    4'd9: begin         // N^2 ready in acc; A = T - 2*mps^2*N^2
-                        if (v_T > {13'd0, mps_thr}) begin
-                            a_pos <= 1'b1;          // A > 0: compute A^2 (prod 10)
-                            op_a <= v_T - {13'd0, mps_thr[46:0]};
-                            op_b <= v_T - {13'd0, mps_thr[46:0]};
-                        end else begin
-                            a_pos <= 1'b0;          // A <= 0: no perp reject
-                            state <= S_CMP0;
-                        end
+                    4'd9: begin         // N^2 ready in acc: register the
+                        mps_thr_r <= acc[41:0] * r_mps;   // threshold first
+                        state <= S_MPS1;                  // (timing; see above)
                     end
                     default: begin      // prod == 10: A^2 ready
                         ha2 <= acc;
@@ -218,6 +220,18 @@ module judge_unit (
                     end
                 endcase
                 prod <= prod + 4'd1;
+            end
+
+            S_MPS1: begin               // A = T - 2*mps^2*N^2 (thr registered)
+                if (v_T > {1'b0, mps_thr_r}) begin
+                    a_pos <= 1'b1;          // A > 0: compute A^2 (prod 10)
+                    op_a <= v_T - {1'b0, mps_thr_r};
+                    op_b <= v_T - {1'b0, mps_thr_r};
+                    state <= S_MSTART;
+                end else begin
+                    a_pos <= 1'b0;          // A <= 0: no perp reject
+                    state <= S_CMP0;
+                end
             end
 
             S_CMP0: begin

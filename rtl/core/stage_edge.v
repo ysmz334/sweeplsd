@@ -112,10 +112,19 @@ module stage_edge #(
     // timing note above). Zeroing the edge here (not later) is what makes the
     // downstream 5x5 feature window of the pixels JUST inside the border see the
     // ring cells as zero — matching the software bit-for-bit.
+    // width-eb / height-eb are REGISTERED: the live subtract used to put an
+    // adder chain sourced by the (die-spanning) width net in front of the
+    // border comparators — part of the worst pixel-clock path. The bounds are
+    // quasi-static, so a settling cycle is harmless.
     wire [XW-1:0] eb = {{(XW-4){1'b0}}, edge_border};
+    reg  [XW-1:0] w_m_eb, h_m_eb;
+    always @(posedge clk) begin
+        w_m_eb <= width - eb;
+        h_m_eb <= height - eb;
+    end
     wire border_zone = (edge_border != 4'd0) &&
-                       ((ox < eb) || (ox >= width - eb) ||
-                        (oy < eb) || (oy >= height - eb));
+                       ((ox < eb) || (ox >= w_m_eb) ||
+                        (oy < eb) || (oy >= h_m_eb));
 
     // position-only, not en-gated (see stage_gauss.v)
     assign o_valid = (X >= 4) && (Y >= 4) && (ox < width) && (oy < height);

@@ -50,11 +50,28 @@ module fe_chain #(
     output wire [1:0]      f_code
 );
 
+    // ---- frame-geometry register slice ---------------------------------------
+    // width/height are quasi-static (they change only with the measured video
+    // mode) but they used to fan combinationally from live_core's measurement
+    // registers across the die into every stage's position comparators — the
+    // worst path of the whole pixel-clock domain (13.2 ns of 13.4, use_w ->
+    // stage_edge). A local register stage lets PAR place the source next to
+    // the consumers; one cycle of staleness on a quasi-static value is
+    // harmless (the fe idles across mode changes).
+    reg [XW-1:0] w_q, h_q;
+    reg [15:0]   pth_q;      // power_th: constant or a frame-stepped register
+                             // (adaptive supply control) — same treatment
+    always @(posedge clk) begin
+        w_q <= width;
+        h_q <= height;
+        pth_q <= power_th;
+    end
+
     // ---- stage 1: gaussian (internally 2-staged; output = pos@t-1 - 2) ------
     wire g_v; wire [XW-1:0] g_x, g_y; wire [13:0] g_g;
     stage_gauss #(.MAXW_LOG2(MAXW_LOG2), .XW(XW)) u_gauss (
         .clk(clk), .rst(rst), .en(en), .X(X), .Y(Y), .x_next(x_next),
-        .width(width), .height(height), .px(px),
+        .width(w_q), .height(h_q), .px(px),
         .o_valid(g_v), .o_x(g_x), .o_y(g_y), .o_g(g_g));
 
     // ---- delayed position context + gauss output register --------------------
@@ -82,7 +99,7 @@ module fe_chain #(
     wire d_v; wire [XW-1:0] d_x, d_y; wire [15:0] d_p; wire d_d;
     stage_gradient #(.MAXW_LOG2(MAXW_LOG2), .XW(XW)) u_grad (
         .clk(clk), .rst(rst), .en(en), .X(Xd2), .Y(Yd2), .x_next(xnd2),
-        .width(width), .height(height),
+        .width(w_q), .height(h_q),
         .i_valid(g_v_r), .i_g(g_g_r),
         .o_valid(d_v), .o_x(d_x), .o_y(d_y), .o_power(d_p), .o_dir(d_d));
 
@@ -90,7 +107,7 @@ module fe_chain #(
     stage_edge #(.MAXW_LOG2(MAXW_LOG2), .XW(XW)) u_edge (
         .clk(clk), .rst(rst), .frame_start(frame_start), .en(en),
         .X(Xd2), .Y(Yd2), .x_next(xnd2),
-        .width(width), .height(height), .power_th(power_th), .strict(strict),
+        .width(w_q), .height(h_q), .power_th(pth_q), .strict(strict),
         .hyst_on(hyst_on), .hyst_adaptive(hyst_adaptive), .hyst_low(hyst_low),
         .edge_border(edge_border),
         .i_valid(d_v), .i_power(d_p), .i_dir(d_d),
@@ -99,13 +116,13 @@ module fe_chain #(
     wire f_strong;
     stage_feature #(.MAXW_LOG2(MAXW_LOG2), .XW(XW)) u_feat (
         .clk(clk), .rst(rst), .en(en), .X(Xd2), .Y(Yd2), .x_next(xnd2),
-        .width(width), .height(height),
+        .width(w_q), .height(h_q),
         .i_valid(e_v), .i_e(e_e), .i_strong(e_strong),
         .o_valid(f_valid), .o_x(f_x), .o_y(f_y), .o_f(f_code), .o_strong(f_strong));
 
     event_pack #(.XW(XW)) u_ev (
         .clk(clk), .rst(ev_rst), .en(en),
-        .width(width), .height(height),
+        .width(w_q), .height(h_q),
         .i_valid(f_valid), .i_x(f_x), .i_y(f_y), .i_f(f_code), .i_strong(f_strong),
         .ev_valid(ev_valid), .ev_kind(ev_kind), .ev_x(ev_x), .ev_strong(ev_strong));
 

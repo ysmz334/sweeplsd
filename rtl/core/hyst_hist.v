@@ -62,15 +62,38 @@ module hyst_hist (
     // cycle, so the histogram is bit-identical to the single-cycle RMW.
     reg        f_pend;
     reg [5:0]  f_idx;
+    reg        fs_q;         // locally re-registered frame_start (fanout cut)
+    reg        rs_q;         // locally re-registered row_start: the raw pulse
+                             //   comes off the position comparators and used to
+                             //   gate the 64x27-bit decay/snapshot writes — the
+                             //   worst remaining pixel-domain path (Yd2->bins).
+                             //   Everything below keys off rs_q, one cycle
+                             //   later; the publish still lands columns before
+                             //   the first NMS compare of the row (window >= 3)
+                             //   and the scan budget is unaffected (>= 64 cols).
+
+    reg        fe_q;         // fold_en, delayed with rs_q (uniform +1 shift of
+    reg [15:0] pow_q;        //   ALL inputs = exact time translation)
 
     wire        active = hyst_on & adaptive;
 
     // fold bin index: clamp (power >> 6) to NB-1
-    wire [9:0]  braw  = i_pow[15:6];
+    wire [9:0]  braw  = pow_q[15:6];
     wire [5:0]  bfold = (|braw[9:6]) ? 6'd63 : braw[5:0];
 
-    // running inclusion test for the current scan bin
-    wire [33:0] cum_incl = cum + {7'd0, snap[idx[5:0]]};
+    // TWO-STAGE scan (timing): the 64:1 snapshot gather mux used to chain into
+    // the x5 shift-add and the percentile compare in a single cycle — the
+    // worst remaining pixel-clock path (15 levels, 13.22 ns of 13.4). Stage 1
+    // registers the bin readout (snap_q); stage 2 accumulates and tests. The
+    // scan takes one extra cycle overall — far inside the two-row-lag budget —
+    // and processes the identical (bin, idx) sequence, so the published
+    // threshold is bit-identical.
+    reg  [26:0] snap_q;
+    reg  [5:0]  sidx_q;
+    reg         sq_v;
+
+    // running inclusion test for the stage-1-registered scan bin
+    wire [33:0] cum_incl = cum + {7'd0, snap_q};
     wire [37:0] cum5     = {cum_incl, 2'b00} + cum_incl;   // cum_incl * 5
     wire [33:0] want4    = {snap_total, 2'b00};            // snap_total * 4
     wire        hit      = (cum5 >= {4'd0, want4});
@@ -83,60 +106,82 @@ module hyst_hist (
 
     integer b;
     always @(posedge clk) begin
+        // ---- en-paced part: the percentile scan (small registers only) ------
         if (en) begin
-            f_pend <= 1'b0;
-            // fold write-back (cycle 2): local one-hot self-add of the index
-            // registered last cycle. Never coincides with a row_start decay —
-            // the last fold of a row drains during the flush before row_start —
-            // so the two writers of `bins` are exclusive in time.
-            if (f_pend)
-                for (b = 0; b < NB; b = b + 1)
-                    if (b == f_idx) bins[b] <= bins[b] + KUNIT;
-
-            if (row_start) begin
-                // (a) publish the previous scan; select fixed/off thresholds too
-                o_low_th <= hyst_on ? (adaptive ? th_scan : hyst_low) : high;
-                if (active) begin
-                    // (b) snapshot H_{m-1} (pre-decay) and (re)start the scan
-                    for (b = 0; b < NB; b = b + 1) snap[b] <= bins[b];
-                    snap_total <= total;
-                    scanning <= 1'b1;
-                    idx      <= 7'd0;
-                    cum      <= 34'd0;
-                    found    <= 1'b0;
-                    found_b  <= 6'd63;
-                    // (c) decay the live histogram
-                    for (b = 0; b < NB; b = b + 1) bins[b] <= bins[b] - (bins[b] >> 8);
-                    total <= total - (total >> 8);
-                end
-            end else if (active && fold_en) begin
-                // fold cycle 1: register the target bin; the self-add fires next
-                // cycle (see the f_pend block above). total is a plain scalar
-                // accumulator (no gather), so fold it here directly.
-                f_idx  <= bfold;
-                f_pend <= 1'b1;
-                total  <= total + KUNIT;
-            end
-
-            // percentile scan advances one snapshot bin per tick (independent of
-            // the fold above; scan reads `snap`, fold writes `bins`). Guarded by
-            // !row_start so a fresh start (width >= 64 => scan already done) never
-            // collides with the advance on `idx`.
-            if (scanning && !row_start) begin
-                if (idx == NB) begin
-                    th_scan  <= th_clamped;   // found_b now final (last set at idx 63)
-                    scanning <= 1'b0;
+            if (scanning && !rs_q) begin
+                // stage 1: registered snapshot readout (gather mux ends here)
+                if (idx != NB) begin
+                    snap_q <= snap[idx[5:0]];
+                    sidx_q <= idx[5:0];
+                    sq_v   <= 1'b1;
+                    idx    <= idx + 7'd1;
                 end else begin
+                    sq_v <= 1'b0;
+                    if (!sq_v) begin
+                        th_scan  <= th_clamped;  // pipeline drained: found_b final
+                        scanning <= 1'b0;
+                    end
+                end
+                // stage 2: accumulate + percentile test on the registered bin
+                if (sq_v) begin
                     if (!found && hit) begin
                         found   <= 1'b1;
-                        found_b <= idx[5:0];
+                        found_b <= sidx_q;
                     end
                     cum <= cum_incl;
-                    idx <= idx + 7'd1;
                 end
             end
         end
-        if (rst || frame_start) begin
+
+        // ---- raw-clock one-shot pipeline for the WIDE writes ----------------
+        // en is woven into the SET conditions only, so rs_q / fe_q / f_pend
+        // pulse for exactly one raw cycle per qualifying en cycle and the
+        // 64x27-bit bins/snap write-enables source from PLAIN REGISTERS. The
+        // raw enable used to be en(=walker step_ok, a live position compare):
+        // the use_w -> in_img -> step_ok cone rode a fanout-386 CE net into
+        // every bins flop — the last near-zero-slack path of the pixel domain.
+        // With en==1 (the board) the schedule is identical; under CE_DIV the
+        // writes land inside the en gap and every en-observed state matches
+        // (the CE_DIV gates verify this).
+        rs_q  <= en && row_start;
+        fe_q  <= en && fold_en && active && !row_start;
+        pow_q <= i_pow;
+        f_pend <= fe_q;
+        if (fe_q) f_idx <= bfold;
+
+        // fold write-back: local one-hot self-add of the registered index.
+        // Never coincides with the rs_q decay (the last fold of a row drains
+        // during the flush before row_start), so the two writers of `bins`
+        // stay exclusive in time.
+        if (f_pend)
+            for (b = 0; b < NB; b = b + 1)
+                if (b == f_idx) bins[b] <= bins[b] + KUNIT;
+        if (fe_q) total <= total + KUNIT;
+
+        if (rs_q) begin
+            // (a) publish the previous scan; select fixed/off thresholds too
+            o_low_th <= hyst_on ? (adaptive ? th_scan : hyst_low) : high;
+            sq_v <= 1'b0;                        // never leak into a fresh scan
+            if (active) begin
+                // (b) snapshot H_{m-1} (pre-decay) and (re)start the scan
+                for (b = 0; b < NB; b = b + 1) snap[b] <= bins[b];
+                snap_total <= total;
+                scanning <= 1'b1;
+                idx      <= 7'd0;
+                cum      <= 34'd0;
+                found    <= 1'b0;
+                found_b  <= 6'd63;
+                // (c) decay the live histogram
+                for (b = 0; b < NB; b = b + 1) bins[b] <= bins[b] - (bins[b] >> 8);
+                total <= total - (total >> 8);
+            end
+        end
+        // frame_start is re-registered locally: it clears ~3.5k histogram FFs
+        // and the raw net (sourced in live_core) was itself a worst-slack path.
+        // One cycle of clear latency is harmless — the first active row is
+        // thousands of cycles after frame start.
+        fs_q <= frame_start;
+        if (rst || fs_q) begin
             for (b = 0; b < NB; b = b + 1) begin
                 bins[b] <= 27'd0;
                 snap[b] <= 27'd0;
@@ -146,6 +191,7 @@ module hyst_hist (
             found <= 1'b0; found_b <= 6'd63;
             th_scan <= 16'd0; o_low_th <= 16'd0;
             f_pend <= 1'b0; f_idx <= 6'd0;
+            sq_v <= 1'b0; rs_q <= 1'b0; fe_q <= 1'b0;
         end
     end
 
