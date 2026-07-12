@@ -500,7 +500,8 @@ void renderAxes(const std::string& out_png, const sweeplsd::GrayImage& gray,
 }  // namespace
 
 int main(int argc, char** argv) {
-    std::string manifest_path, html_path, assets_dir, gtlines_path, mlsd_dir, edreal_dir;
+    std::string manifest_path, html_path, assets_dir, gtlines_path, mlsd_dir, edreal_dir,
+        elsed_dir;
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
         if (a == "--html" && i + 1 < argc) html_path = argv[++i];
@@ -508,6 +509,9 @@ int main(int argc, char** argv) {
         else if (a == "--gtlines" && i + 1 < argc) gtlines_path = argv[++i];
         else if (a == "--mlsd-dir" && i + 1 < argc) mlsd_dir = argv[++i];
         else if (a == "--edreal-dir" && i + 1 < argc) edreal_dir = argv[++i];
+        // --elsed-dir DIR : ingest genuine ELSED segments per image (same file
+        // format as the EDLines runner: "<count> <median_ms>" then x0 y0 x1 y1)
+        else if (a == "--elsed-dir" && i + 1 < argc) elsed_dir = argv[++i];
         else if (!a.empty() && a[0] != '-') manifest_path = a;
     }
     if (manifest_path.empty()) {
@@ -576,12 +580,18 @@ int main(int argc, char** argv) {
 
     Acc sweeplsd_a{"SweepLSD"}, sweeplsd_imp_a{"SweepLSD-improved"}, sweeplsd_implink_a{"SweepLSD-imp+link"},
         lsd_a{"LSD"}, ed_a{"EDLines-style"}, edreal_a{"EDLines (ED_Lib)"}, mlsd_a{"M-LSD"},
-        ceil_a{"GT lines (ceiling)"};
+        elsed_a{"ELSED"}, ceil_a{"GT lines (ceiling)"};
     const bool have_mlsd = !mlsd_dir.empty();
     const bool have_edreal = !edreal_dir.empty();
+    const bool have_elsed = !elsed_dir.empty();
     auto runEdReal = [&](const std::string& name) {
         std::vector<LineSegment> v;
         readEdRealFile(edreal_dir + "/" + name + ".txt", v);
+        return v;
+    };
+    auto runElsed = [&](const std::string& name) {
+        std::vector<LineSegment> v;
+        readEdRealFile(elsed_dir + "/" + name + ".txt", v);
         return v;
     };
     auto runMlsd = [&](const std::string& name) {
@@ -612,6 +622,7 @@ int main(int argc, char** argv) {
             {&lsd_a, runLsd(gray)}, {&ed_a, runEd(gray)}};
         if (have_edreal) runs.push_back({&edreal_a, runEdReal(r.name)});
         if (have_mlsd) runs.push_back({&mlsd_a, runMlsd(r.name)});
+        if (have_elsed) runs.push_back({&elsed_a, runElsed(r.name)});
         auto git = gtlines.find(r.name);
         if (git != gtlines.end()) runs.push_back({&ceil_a, git->second});
         for (RunOne& ro : runs) {
@@ -635,6 +646,7 @@ int main(int argc, char** argv) {
     std::vector<const Acc*> table = {&sweeplsd_a, &sweeplsd_imp_a, &sweeplsd_implink_a, &lsd_a, &ed_a};
     if (have_edreal) table.push_back(&edreal_a);
     if (have_mlsd) table.push_back(&mlsd_a);
+    if (have_elsed) table.push_back(&elsed_a);
     if (have_ceiling) table.push_back(&ceil_a);
     for (const Acc* a : table)
         std::printf("  %-26s %5zu %5d %9.2f° %9.2f° %7.0f%% %7.0f%% %8.0f\n",
@@ -750,6 +762,7 @@ int main(int argc, char** argv) {
                         {"ed", "EDLines-style", runEd(g)}};
                     if (have_edreal) ss.push_back({"edreal", "EDLines (ED_Lib)", runEdReal(r.name)});
                     if (have_mlsd) ss.push_back({"mlsd", "M-LSD", runMlsd(r.name)});
+                    if (have_elsed) ss.push_back({"elsed", "ELSED", runElsed(r.name)});
                     // plain grayscale base + per-method raw line overlays (report C)
                     sweeplsd::saveSegmentVisualization(assets_dir + "/" + r.name + "_src.png", g, {});
                     for (S& s : ss) {
