@@ -593,14 +593,15 @@ right/bottom edge). Total BRAM: core ~70 KiB + overlay ~58 KiB + video I/O ≈ 1
 endpoints only, or use the DDR2 for the mask — the *detector* remains
 memory-free either way.)
 
-## Board bring-up plan (task #10)
+## Board bring-up (completed)
 
-1. Start from a known-good Atlys HDMI pass-through (Digilent demo /
-   Hamsterworks Atlys HDMI projects) under ISE 14.7; verify RX→TX untouched.
-2. Insert rgb2gray + sweep_core tap (records to ChipScope/UART first).
-3. Add seg_db + overlay; then tune.
-
-Programming via Digilent Adept 2 (`djtgcfg prog`).
+The bring-up followed three staged milestones, each verified before the next:
+(1) a known-good HDMI pass-through skeleton under ISE 14.7 (XAPP495 RX → TX
+untouched, FPGA-served EDID), (2) rgb2gray + `sweep_core` inserted in the
+recovered-clock domain, (3) the overlay and live tuning. The result is the
+live demo described above (`boards/atlys/atlys_rx_top.v`, 1080p30 / 720p60);
+build instructions are in `boards/atlys/README.md`. Programming via Digilent
+Adept 2 (`djtgcfg prog`).
 
 ## Repository layout
 
