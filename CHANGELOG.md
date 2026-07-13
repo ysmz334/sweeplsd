@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v1.2.0 (2026-07-13)
 
 - **Stronger collinear linking** (`Params::link_collinear`, still off by
   default). The linker used to match on direction + endpoint gap alone, so a
@@ -21,7 +21,17 @@
   Synthetic-GT F-max (strict one-to-one) for improved+link: σ0 0.966→0.973,
   σ10 →0.953, σ20 0.907→**0.935** (previous linker: 0.969/0.949/0.920);
   geometry errors unchanged. Isotropy probes: circles stay **0**, curve
-  chords are not assembled (zone 27→32, CoV 1.58→1.37).
+  chords are not assembled (zone 27→32, CoV 1.58→1.37). Downstream
+  Manhattan-frame medians improve accordingly — fixed estimator: York
+  1.05°→**0.99°**, NYU 12.7°→**10.7°**; fair best-estimator-per-detector
+  protocol (NYU): **5.23°** cross-validated, 5.25° at the shipped estimator
+  (improved: 6.08°/5.98°).
+
+- **Benchmark harness additions**: genuine-ELSED ingestion (`--elsed-dir`)
+  for the synthetic-GT, isotropy, and vanishing-point studies; the
+  estimator-menu fair-protocol study is now a committed tool
+  (`sweeplsd_vp_bestcfg` + `tools/vp_bestcfg_cv.py`, with an `implink`
+  method) whose aggregation reproduces the published numbers exactly.
 
 ## v1.1.0 (2026-07-13)
 
