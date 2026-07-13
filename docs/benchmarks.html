@@ -19,19 +19,47 @@ implementations, built with the same ISA target (AVX2).</p>
 <p>Median per-image processing time over the 150-photo Waseda dataset (1920×1080, 8-bit
 grayscale — the input format the original thesis evaluated on). CPU: Intel i7-8700K,
 GCC (MinGW-w64) <code>-O3 -mavx2</code>; LSD is the canonical implementation
-(von Gioi et al., IPOL 1.6); EDLines is the authors' ED_Lib built with MSVC
-<code>/O2 /arch:AVX2</code> + OpenCV.</p>
+(von Gioi et al., IPOL 1.6); EDLines is the authors' ED_Lib and ELSED the authors'
+source (Apache-2.0), both built with MSVC <code>/O2 /arch:AVX2</code>.</p>
 <table><thead><tr><th>detector</th><th>median time / frame</th><th>relative</th><th>memory for intermediates</th></tr></thead><tbody>
-<tr><td class="sweep">SweepLSD improved (one-pass)</td><td class="best">17.2 ms</td><td class="best">1×</td><td class="best">O(width)</td></tr>
-<tr><td>SweepLSD baseline (multi-pass)</td><td>18.1 ms</td><td>1.05×</td><td>O(pixels)</td></tr>
-<tr><td>SweepLSD improved (multi-pass)</td><td>21.5 ms</td><td>1.25×</td><td>O(pixels)</td></tr>
+<tr><td class="sweep">SweepLSD (one-pass)</td><td class="best">17.2 ms</td><td class="best">1×</td><td class="best">O(width)</td></tr>
+<tr><td>SweepLSD (multi-pass driver)</td><td>21.5 ms</td><td>1.25×</td><td>O(pixels)</td></tr>
+<tr><td>ELSED</td><td>28.2 ms</td><td>1.6×</td><td>O(pixels)</td></tr>
 <tr><td>EDLines (ED_Lib)</td><td>43.0 ms</td><td>2.5×</td><td>O(pixels)</td></tr>
 <tr><td>LSD</td><td>247 ms</td><td>14×</td><td>O(pixels)</td></tr>
 </tbody></table>
-<p>Typical segment counts on a rich urban photo (IMGP0942): SweepLSD baseline 3034,
-improved 2938, LSD 2938, EDLines 2780 — the speed does not come from detecting less.</p>
+<p>Typical segment counts on a rich urban photo (IMGP0942): SweepLSD 2938, ELSED 3064,
+LSD 2938, EDLines 2780 — the speed does not come from detecting less (corpus-wide,
+SweepLSD detects ~27% <i>more</i> segments than ELSED at defaults).</p>
 
-<h2>2. Where the time goes</h2>
+<h2>2. Across image scales</h2>
+<p>ELSED's defaults are tuned for 640×480 inputs, where its published speed leadership was
+established, so the same 150 photographs were Lanczos-downsampled and re-timed
+(same in-process harness, so compare ratios):</p>
+<table><thead><tr><th>resolution</th><th>SweepLSD (one-pass)</th><th>ELSED</th><th>LSD</th></tr></thead><tbody>
+<tr><td>640×360 (0.23 MP)</td><td class="best">2.0 ms</td><td>4.6 ms</td><td>28.4 ms</td></tr>
+<tr><td>1280×720 (0.92 MP)</td><td class="best">6.8 ms</td><td>15.3 ms</td><td>114 ms</td></tr>
+<tr><td>1920×1080 (2.07 MP)</td><td class="best">14.7 ms</td><td>28.2 ms</td><td>263 ms</td></tr>
+</tbody></table>
+<p>SweepLSD is ~2× faster than ELSED at <i>every</i> scale, including ELSED's native one.</p>
+
+<h2>3. Memory and latency, measured</h2>
+<p><b>Memory.</b> Peak process working set of load-image-and-detect-three-times minus a
+load-only control run of the same binary (isolates the detector-attributable peak):</p>
+<table><thead><tr><th>detector</th><th>detector-attributable peak</th></tr></thead><tbody>
+<tr><td class="sweep">SweepLSD (one-pass)</td><td class="best">+0.0 MB (working set ≈0.13 MB — below the PNG-decode transient)</td></tr>
+<tr><td>SweepLSD (multi-pass driver)</td><td>+8.6 MB</td></tr>
+<tr><td>ELSED</td><td>+29.3 MB</td></tr>
+<tr><td>EDLines (ED_Lib)</td><td>+30.6 MB</td></tr>
+<tr><td>LSD</td><td>+57.1 MB</td></tr>
+</tbody></table>
+<p><b>Latency.</b> Instrumenting the labeller's emission point over the whole corpus
+(222,507 segments): a segment is emitted a median <b>6.5 rows</b> after its last pixel
+enters the detector (95% within 7.0, 99% within 7.5, worst 11.3) — ≈0.19 ms at 1080p30
+video timing, independent of image height. Any detector that must hold the image has a
+latency floor of one frame period (33 ms) plus its processing time.</p>
+
+<h2>4. Where the time goes</h2>
 <p>Per-stage profile (<code>sweeplsd_profile</code>, median of 9 runs, one Full-HD photo,
 multi-pass driver so stages are separable):</p>
 <table><thead><tr><th>stage</th><th>ms</th><th>share</th></tr></thead><tbody>
@@ -46,7 +74,7 @@ multi-pass driver so stages are separable):</p>
 kernels but keeps only a few rows of each intermediate, so its working set stays in L1/L2 —
 which is why it is <i>faster</i> than the multi-pass driver despite doing identical work.</p>
 
-<h2>3. Compiler dependence (measured honestly)</h2>
+<h2>5. Compiler dependence (measured honestly)</h2>
 <p>The kernels contain no SIMD intrinsics by design; the speed comes from compiler
 auto-vectorization.</p>
 <table><thead><tr><th>compiler</th><th>Full-HD detect</th><th style="text-align:left">note</th></tr></thead><tbody>
@@ -58,7 +86,9 @@ auto-vectorization.</p>
 baseline detectors at configure time (LSD is AGPL-3.0 and is deliberately <i>not</i> vendored
 in this MIT repository), then run <code>sweeplsd_time_methods &lt;dir-of-pngs&gt;</code>.
 Genuine-EDLines timings need OpenCV (<code>sweeplsd_edlines_runner</code> is built
-automatically when OpenCV is found).</div>
+automatically when OpenCV is found); ELSED rows come from the authors' source built
+separately (Apache-2.0) and are ingested with <code>--elsed-dir</code> in the same file
+format as the EDLines runner.</div>
 
 <footer>Measured 2026-07 on i7-8700K. One caveat repeated from the fairness notes: LSD's
 official implementation is single-scale and unoptimised C — its 247 ms is the price of its

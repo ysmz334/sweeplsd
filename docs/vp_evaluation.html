@@ -27,11 +27,17 @@ the official downloads; this page is numbers-only.)</p>
 
 <h2>2. Results with a fixed common estimator</h2>
 <table><thead><tr><th>detector</th><th>York Urban (outdoor)<br>median err</th><th>NYU (indoor)<br>median err</th></tr></thead><tbody>
-<tr><td class="sweep">SweepLSD improved</td><td>1.04°</td><td>12.7°</td></tr>
+<tr><td class="sweep">SweepLSD</td><td>1.04°</td><td>12.7°</td></tr>
+<tr><td class="sweep">SweepLSD + optional linker</td><td>0.99°</td><td>10.7°</td></tr>
 <tr><td>LSD</td><td class="best">0.92°</td><td>10.7°</td></tr>
 <tr><td>EDLines (ED_Lib)</td><td>0.98°</td><td class="best">10.4°</td></tr>
+<tr><td>ELSED</td><td>0.96°</td><td>10.4°</td></tr>
 <tr class="ceil"><td>hand-labelled GT lines (estimator ceiling)</td><td>0.59°</td><td>6.0°</td></tr>
 </tbody></table>
+<p>ELSED and the linker rows were measured in a verification re-run with the same estimator
+(the re-run reproduces the other rows within ≤0.2°). The linker row is the interesting one:
+re-assembling fragments across junction cuts feeds directly through to downstream support —
+indoors it moves SweepLSD from 12.7° into the LSD/ELSED band.</p>
 <div class="warn"><b>Read indoor medians with care.</b> The indoor error distribution is
 <i>bimodal</i>: an image either succeeds (≈1.5°) or the frame search locks onto the wrong
 structure (≈27°). The median is just the mixing ratio of those two modes — even the
@@ -42,7 +48,7 @@ benchmark.</div>
 <p>A per-line decomposition against the ground-truth axes (per-line residual angle, inlier
 support per axis, oracle/refinement splits) shows:</p>
 <ul>
-<li><b>Per-line direction quality is best for SweepLSD improved</b> (median residual vs the
+<li><b>Per-line direction quality is best for SweepLSD</b> (median residual vs the
 GT axes 0.51° &lt; LSD 0.57° &lt; ED_Lib 0.65° on York Urban) — its measured advantage in
 segment geometry is real on real photos too.</li>
 <li><b>The ranking is driven by inlier <i>support</i>, especially on the weakest axis.</b>
@@ -57,44 +63,54 @@ are statistically indistinguishable (1.56° / 1.53° / 1.48°).</li>
 
 <h2>4. The estimator choice flips the ranking (fair protocol)</h2>
 <p>Because the differences are support-driven, they depend strongly on how the estimator
-weighs lines. A declared menu of estimator variants (line weighting × inlier band × search
-strength × vertical prior) was evaluated with <b>selection and evaluation on separate
-data</b> (split-half cross-validation within each dataset; also cross-dataset selection):</p>
+weighs lines. A declared menu of <b>twelve estimator variants, identical for every
+detector</b> (line weighting × inlier band × search strength × vertical prior), was
+evaluated with <b>selection and evaluation on separate data</b> (split-half
+cross-validation within each dataset: variants selected by median error on one half,
+scored on the other, test halves pooled):</p>
 <table><thead><tr><th>dataset</th><th>detector</th><th>median err (CV)</th><th>&lt;2°</th><th>&lt;5°</th></tr></thead><tbody>
-<tr><td rowspan="3">NYU (indoor), split-half CV</td><td class="sweep">SweepLSD improved</td><td class="best">5.97°</td><td class="best">33.0%</td><td class="best">48.7%</td></tr>
-<tr><td>EDLines (ED_Lib)</td><td>7.64°</td><td>30.3%</td><td>45.3%</td></tr>
-<tr><td>LSD</td><td>7.82°</td><td>30.6%</td><td>46.8%</td></tr>
-<tr><td rowspan="3">York Urban (outdoor), split-half CV</td><td>LSD</td><td class="best">0.85°</td><td class="best">92.2%</td><td>96.1%</td></tr>
-<tr><td class="sweep">SweepLSD improved</td><td>0.92°</td><td>84.3%</td><td>95.1%</td></tr>
+<tr><td rowspan="4">NYU (indoor), split-half CV</td><td class="sweep">SweepLSD</td><td class="best">6.08°</td><td class="best">33.2%</td><td class="best">48.6%</td></tr>
+<tr><td>ELSED</td><td>7.67°</td><td>32.4%</td><td>47.1%</td></tr>
+<tr><td>LSD</td><td>7.87°</td><td>29.2%</td><td>46.4%</td></tr>
+<tr><td>EDLines (ED_Lib)</td><td>8.09°</td><td>30.5%</td><td>45.7%</td></tr>
+<tr><td rowspan="4">York Urban (outdoor), split-half CV</td><td>ELSED</td><td class="best">0.82°</td><td>84.3%</td><td>96.1%</td></tr>
+<tr><td>LSD</td><td>0.83°</td><td class="best">93.1%</td><td>96.1%</td></tr>
+<tr><td class="sweep">SweepLSD</td><td>0.94°</td><td>85.3%</td><td>95.1%</td></tr>
 <tr><td>EDLines (ED_Lib)</td><td>1.00°</td><td>89.2%</td><td class="best">98.0%</td></tr>
 </tbody></table>
-<p><b>Indoors SweepLSD wins every fair protocol</b> once the estimator counts each line as
-one vote (length-weighted voting lets long clutter contours hijack the search; SweepLSD's
-support is many short-but-accurate lines). Outdoors it is a metric-dependent tie with LSD.
-The estimator that measured best overall — <b>unit-weight voting × vertical-prior seed ×
-strong candidate search</b> — is exactly what <code>examples/manhattan_frame.cpp</code>
-implements, so the recommended configuration ships as working code.</p>
+<p><b>Indoors SweepLSD wins every fair protocol — now including against ELSED</b> — once the
+estimator counts each line as one vote (length-weighted voting lets long clutter contours
+hijack the search; SweepLSD's support is many short-but-accurate lines). The optional linker
+compounds the indoor lead: under the identical menu and cross-validation it scores
+<b>5.23°</b> (outdoor CV median 0.93°, indistinguishable from the linker-less 0.94°).
+Outdoors the result is a metric-dependent near-tie: ELSED and LSD share the best median
+while LSD clearly leads recall at 2°. The estimator that measured best overall —
+<b>unit-weight voting × vertical-prior seed × strong candidate search</b> — is exactly what
+<code>examples/manhattan_frame.cpp</code> implements, so the recommended configuration
+ships as working code.</p>
 
 <div class="key"><b>Takeaway.</b> "Which detector is best for vanishing points?" has no
 detector-only answer: it is a property of the (detector × estimator) pair. With the
-estimator this repository recommends and ships, SweepLSD improved measured
-<b>5.13° median on indoor NYU — the best of all detector/estimator combinations tested</b>
-— while remaining 2.5× / 14× faster than ED_Lib / LSD upstream of the estimator.</div>
+estimator this repository recommends and ships, SweepLSD measured 5.98° median on indoor
+NYU — <b>5.25° with the optional linker, the best of all detector/estimator combinations
+tested</b> (best non-SweepLSD: ELSED at 6.53°) — while remaining 1.6× / 2.5× / 14× faster
+than ELSED / ED_Lib / LSD upstream of the estimator.</div>
 
 <div class="note"><b>Reproduce it.</b> Build with <code>-DSWEEPLSD_BUILD_BENCH=ON</code>;
 export the manifests with <code>tools/yud_export.py</code> (York Urban) /
 <code>tools/nyu_export.py</code> (NYU-VP); run <code>sweeplsd_yud_eval &lt;manifest&gt;
-[--gtlines ...] [--edreal-dir ...]</code>. The estimator-menu study and the per-line
-decomposition were run with the same estimator mathematics; the recommended configuration
-is <code>sweeplsd_manhattan</code>.</div>
+[--gtlines ...] [--edreal-dir ...] [--elsed-dir ...]</code>. The fair protocol is a
+committed tool: <code>sweeplsd_vp_bestcfg</code> writes one CSV row per
+(image, detector, variant) and <code>tools/vp_bestcfg_cv.py</code> performs the split-half
+cross-validated aggregation (the rule reproduces the original study's published numbers
+exactly from its surviving records). The recommended estimator ships as
+<code>sweeplsd_manhattan</code> / <code>examples/manhattan_frame.cpp</code>.</div>
 
-<div class="note"><b>Re-verified 2026-07.</b> After the outer-3&nbsp;px edge-exclusion fidelity
-fix, the downstream vanishing-point numbers are unchanged within run-to-run noise: under the
-fixed common estimator SweepLSD improved measures 1.02° (York Urban) / 12.9° (NYU) median
-error vs the 1.04° / 12.7° tabled above — a ≤0.2° shift, well inside the estimator's own
-scatter. The fix drops the faithful <i>baseline</i>'s spurious frame ring (−4.3&nbsp;% segments
-on the Full-HD corpus) but barely touches the improved config (≈0&nbsp;%), which already
-discarded frame-hugging segments; every ranking and takeaway on this page therefore stands.</div>
+<div class="note"><b>Refreshed 2026-07.</b> The fair-protocol table was re-measured in a
+single run of all four detectors over the identical 12-variant menu (ELSED added); the
+linker rows come from the same runs. Under the fixed common estimator the re-run reproduces
+the §2 table within ≤0.2° — every ranking and takeaway on this page is from
+internally-consistent, same-run data.</div>
 
 <footer>Datasets: York Urban Database (Denis, Elder &amp; Estrada 2008) and NYU-VP
 (Kluger et al. 2020, from NYU Depth v2) — please obtain them from their official sources;

@@ -10,7 +10,7 @@
 
 <h1>Detection quality</h1>
 <p class="sub">Synthetic ground truth with strict one-to-one matching, geometric accuracy,
-and orientation isotropy — against genuine LSD and ED_Lib EDLines.</p>
+and orientation isotropy — against genuine LSD, ED_Lib EDLines, and ELSED.</p>
 <nav><a href="index.html">Algorithm</a> <a href="benchmarks.html">Speed</a>
 <a href="evaluation.html"><b>Quality</b></a> <a href="vp_evaluation.html">Vanishing points</a>
 <a href="fpga.html">FPGA</a></nav>
@@ -22,91 +22,102 @@ ground truth, Gaussian noise σ ∈ {0, 5, 10, 20}. Matching is <b>strict one-to
 is penalised) — lenient one-to-many matching flattered every method and inverted rankings,
 so it is not used. Every detector's main knob is swept and the best F-score
 (<b>F-max</b>) reported, so no method is judged at an unfavourable operating point.
-Baselines are the <b>genuine author implementations</b> (canonical LSD; ED_Lib EDLines) —
-an earlier self-reimplemented "EDLines-style" baseline underestimated the real thing badly
-and was retired to a clearly-labelled fallback.</p>
+Baselines are the <b>genuine author implementations</b> (canonical LSD; ED_Lib EDLines;
+ELSED built from the authors' source) — an earlier self-reimplemented "EDLines-style"
+baseline underestimated the real thing badly and was retired to a clearly-labelled
+fallback. One sweep asymmetry to disclose: ELSED's implementation aborts below
+<code>minLineLen</code> ≈7–10, so its knob sweep spans 10–40 where the others reach down
+to 5; its F-max points did not lie at the clipped end.</p>
 
 <h2>2. F-max under noise</h2>
-<table><thead><tr><th>noise σ</th><th>SweepLSD improved</th><th>SweepLSD baseline</th><th>LSD</th><th>EDLines (ED_Lib)</th></tr></thead><tbody>
-<tr><td>0 (clean)</td><td class="best">0.966</td><td>0.960</td><td>0.923</td><td>0.953</td></tr>
-<tr><td>5</td><td class="best">0.963</td><td>0.956</td><td>0.926</td><td>0.954</td></tr>
-<tr><td>10</td><td>0.949</td><td>0.943</td><td>0.800</td><td class="best">0.954</td></tr>
-<tr><td>20</td><td>0.907</td><td>0.892</td><td>0.507</td><td class="best">0.961</td></tr>
+<table><thead><tr><th>noise σ</th><th>SweepLSD</th><th>LSD</th><th>EDLines (ED_Lib)</th><th>ELSED</th></tr></thead><tbody>
+<tr><td>0 (clean)</td><td>0.966</td><td>0.923</td><td>0.953</td><td class="best">0.979</td></tr>
+<tr><td>5</td><td>0.963</td><td>0.926</td><td>0.954</td><td class="best">0.986</td></tr>
+<tr><td>10</td><td>0.949</td><td>0.800</td><td>0.954</td><td class="best">0.986</td></tr>
+<tr><td>20</td><td>0.907</td><td>0.507</td><td>0.961</td><td class="best">0.986</td></tr>
 </tbody></table>
-<p>Reading: <b>SweepLSD improved leads on clean–low-noise images</b>; <b>ED_Lib EDLines is
-the most noise-stable</b> (essentially flat to σ20); LSD degrades fastest under heavy noise.
-The <b>faithful 2014 baseline now tracks the improved column closely on F-max</b>: it used to
-sit far below (0.47 at σ10) because a 2×2-gradient frame ring manufactured a full image
-border of false positives that crushed its precision. Excluding the outer 3&nbsp;px from the
-edge test (a fidelity fix — the original reproduction zeroes a comparable border, and the
-improved config already dropped these via its frame-hugging margin) removes that penalty. What
-the improvements still buy on top of the repaired baseline is <i>geometric</i> accuracy (§3)
-and curve rejection (§4), not raw F-max.</p>
+<p>Stated plainly: <b>ELSED leads F-max at every noise level</b> on this protocol — its
+fused drawing-and-fitting with validation is extremely effective on synthetic bar scenes,
+and essentially flat in noise. SweepLSD is second on clean and low-noise images; ED_Lib is
+similarly noise-stable at a slightly lower level; LSD degrades fastest under heavy noise.
+A false-positive taxonomy shows the gap to ELSED is driven almost entirely by
+<i>fragmentation</i> — under strict one-to-one matching every extra fragment of a
+ground-truth line counts as a false positive, and ELSED's drawing pass jumps
+discontinuities natively. SweepLSD's <b>optional</b> gap-tolerant collinear linker
+(<code>link_collinear</code>, off by default; a finalization-level feature that preserves
+the streaming property) re-assembles fragments across junction cuts and noise breaks and
+closes part of that gap: with it, F-max rises to <b>0.973</b> on clean scenes and
+<b>0.935</b> at σ20.</p>
 
 <div class="gallery">
 <figure><img src="assets/eval/eval_gt.png"><figcaption>ground truth (σ10 scene)</figcaption></figure>
-<figure><img src="assets/eval/eval_sweeplsd_improved.png"><figcaption>SweepLSD improved</figcaption></figure>
+<figure><img src="assets/eval/eval_sweeplsd_improved.png"><figcaption>SweepLSD</figcaption></figure>
 <figure><img src="assets/eval/eval_lsd.png"><figcaption>LSD</figcaption></figure>
 <figure><img src="assets/eval/eval_ed.png"><figcaption>EDLines (ED_Lib)</figcaption></figure>
 </div>
 
 <h2>3. Geometric accuracy (matched segments)</h2>
 <table><thead><tr><th>detector</th><th>lateral error</th><th>direction error</th></tr></thead><tbody>
-<tr><td class="sweep">SweepLSD improved</td><td class="best">0.12 px</td><td class="best">0.01–0.04°</td></tr>
+<tr><td class="sweep">SweepLSD</td><td class="best">0.12 px</td><td class="best">0.01–0.04°</td></tr>
+<tr><td>ELSED</td><td class="best">0.12–0.14 px</td><td>0.07–0.11°</td></tr>
 <tr><td>EDLines (ED_Lib)</td><td>0.13 px</td><td>0.14°</td></tr>
 <tr><td>LSD</td><td>0.15 px</td><td>0.03–0.13°</td></tr>
 </tbody></table>
-<p>Per-segment geometry is SweepLSD's strongest axis: the scatter-moment line fit plus
-sub-pixel NMS plus the half-pixel lattice correction give it the best direction accuracy of
-the three — an order of magnitude better than ED_Lib. (Two frame conventions were fixed
-during this work: the detector's own −0.5 px lattice bias, and a +0.5 px sampling mismatch
-in the evaluator's GT renderer that had been taxing <i>every</i> detector.)</p>
+<p>Per-segment geometry is SweepLSD's strongest axis: the scatter-moment line fit over
+every member pixel plus sub-pixel NMS plus the half-pixel lattice correction give it the
+best direction accuracy of the field — 2–5× better than ELSED and an order of magnitude
+better than ED_Lib. (Two frame conventions were fixed during this work: the detector's own
+−0.5 px lattice bias, and a +0.5 px sampling mismatch in the evaluator's GT renderer that
+had been taxing <i>every</i> detector.)</p>
 
 <h2>4. Orientation isotropy &amp; curve rejection</h2>
 <p>Synthetic probes (1024×1024): a 72-sector Siemens star, a zone plate, concentric
 circles, and a 48-line angular fan. CoV = coefficient of variation of the length-weighted
 orientation histogram (lower = more isotropic).</p>
-<table><thead><tr><th>pattern</th><th colspan="2">SweepLSD improved</th><th colspan="2">LSD</th><th colspan="2">EDLines (ED_Lib)</th></tr>
-<tr><th></th><th>segs</th><th>CoV</th><th>segs</th><th>CoV</th><th>segs</th><th>CoV</th></tr></thead><tbody>
-<tr><td>Siemens star (straight spokes)</td><td>110</td><td>0.74</td><td>108</td><td class="best">0.51</td><td>108</td><td>0.59</td></tr>
-<tr><td>Angular fan (straight lines)</td><td>198</td><td>0.21</td><td>302</td><td class="best">0.18</td><td>193</td><td>0.20</td></tr>
-<tr><td>Concentric circles (no straight lines!)</td><td class="best">0</td><td>—</td><td>1796</td><td>0.13</td><td>1768</td><td>0.17</td></tr>
-<tr><td>Zone plate (curved everywhere)</td><td class="best">27</td><td>1.58</td><td>859</td><td>0.18</td><td>675</td><td>0.24</td></tr>
+<table><thead><tr><th>pattern</th><th colspan="2">SweepLSD</th><th colspan="2">LSD</th><th colspan="2">EDLines (ED_Lib)</th><th colspan="2">ELSED</th></tr>
+<tr><th></th><th>segs</th><th>CoV</th><th>segs</th><th>CoV</th><th>segs</th><th>CoV</th><th>segs</th><th>CoV</th></tr></thead><tbody>
+<tr><td>Siemens star (straight spokes)</td><td>110</td><td>0.74</td><td>108</td><td>0.51</td><td>108</td><td>0.59</td><td>108</td><td class="best">0.50</td></tr>
+<tr><td>Angular fan (straight lines)</td><td>198</td><td>0.21</td><td>302</td><td class="best">0.18</td><td>193</td><td>0.20</td><td>192</td><td>0.22</td></tr>
+<tr><td>Concentric circles (no straight lines!)</td><td class="best">0</td><td>—</td><td>1796</td><td>0.13</td><td>1768</td><td>0.17</td><td>1443</td><td>0.29</td></tr>
+<tr><td>Zone plate (curved everywhere)</td><td class="best">27</td><td>1.58</td><td>859</td><td>0.18</td><td>675</td><td>0.24</td><td>475</td><td>0.31</td></tr>
 </tbody></table>
 <div class="key"><b>The circles row is a feature, not a failure.</b> A <i>line segment</i>
-detector asked to describe circles should say "no lines here". SweepLSD improved (with its
+detector asked to describe circles should say "no lines here". SweepLSD (with its
 curve-rejection bound) returns <b>0 segments on circles</b> and 27 on the zone plate;
-LSD and EDLines shred the curves into ~1800 short straight fragments. Downstream geometry
-(vanishing points, wireframes, SLAM lines) is exactly where those fake straight fragments
-hurt.</div>
+LSD, EDLines and ELSED shred the same curves into ~1400–1800 and ~500–900 short straight
+fragments. Downstream geometry (vanishing points, wireframes, SLAM lines) is exactly where
+those fake straight fragments hurt. The 27 zone-plate survivors mark the honest limit of
+per-segment curve rejection: they are short tangent chords whose deviation from a true
+line is below one pixel — locally, genuinely straight — which no per-segment straightness
+test can reject.</div>
 
 <div class="gallery">
 <figure><img src="assets/iso/iso_circles_src.png"><figcaption>concentric circles (input)</figcaption></figure>
-<figure><img src="assets/iso/iso_circles_sweeplsdimp.png"><figcaption>SweepLSD improved: 0 segments</figcaption></figure>
+<figure><img src="assets/iso/iso_circles_sweeplsdimp.png"><figcaption>SweepLSD: 0 segments</figcaption></figure>
 <figure><img src="assets/iso/iso_circles_lsd.png"><figcaption>LSD: 1796 segments</figcaption></figure>
 <figure><img src="assets/iso/iso_circles_edreal.png"><figcaption>ED_Lib: 1768 segments</figcaption></figure>
+<figure><img src="assets/iso/iso_circles_elsed.png"><figcaption>ELSED: 1443 segments</figcaption></figure>
 </div>
 
 <h2>5. Honest summary</h2>
 <table><thead><tr><th>axis</th><th style="text-align:left">leader</th></tr></thead><tbody>
-<tr><td>clean / low-noise F-max</td><td style="text-align:left" class="sweep">SweepLSD improved</td></tr>
-<tr><td>heavy-noise F-max</td><td style="text-align:left">EDLines (ED_Lib)</td></tr>
-<tr><td>per-segment geometric accuracy</td><td style="text-align:left" class="sweep">SweepLSD improved</td></tr>
+<tr><td>F-max (every noise level, strict 1-to-1)</td><td style="text-align:left">ELSED</td></tr>
+<tr><td>per-segment geometric accuracy (esp. direction)</td><td style="text-align:left" class="sweep">SweepLSD</td></tr>
 <tr><td>low-contrast / soft-edge coverage</td><td style="text-align:left">LSD, EDLines (orientation-coherence linking)</td></tr>
-<tr><td>curve rejection (only straight lines)</td><td style="text-align:left" class="sweep">SweepLSD improved</td></tr>
-<tr><td>speed &amp; memory</td><td style="text-align:left" class="sweep">SweepLSD (one-pass)</td></tr>
+<tr><td>curve rejection (only straight lines)</td><td style="text-align:left" class="sweep">SweepLSD</td></tr>
+<tr><td>speed, memory, latency</td><td style="text-align:left" class="sweep">SweepLSD (one-pass)</td></tr>
+<tr><td>indoor vanishing points (fair protocol)</td><td style="text-align:left" class="sweep">SweepLSD (<a href="vp_evaluation.html">details</a>)</td></tr>
 </tbody></table>
 
 <div class="note"><b>Reproduce it.</b> <code>sweeplsd_evaluate</code> generates the synthetic
 scenes and the table deterministically; <code>sweeplsd_gen_isotropy</code> produces the probe
 images and rose diagrams. Both build with <code>-DSWEEPLSD_BUILD_BENCH=ON</code> (fetches
 LSD at configure time). Genuine-EDLines rows are produced by
-<code>sweeplsd_edlines_runner</code> (OpenCV) and ingested with <code>--edreal-dir</code>.</div>
+<code>sweeplsd_edlines_runner</code> (OpenCV) and ingested with <code>--edreal-dir</code>;
+ELSED rows by the authors' source built separately (Apache-2.0), ingested with
+<code>--elsed-dir</code>.</div>
 
 <footer>All numbers regenerated 2026-07 from this repository's benchmark harness
 (upstream LSD 1.6 fetched at configure time; results match the development workspace's
-vendored copy exactly). Re-verified 2026-07 after the outer-3&nbsp;px edge-exclusion
-fidelity fix: the improved, LSD and EDLines columns are unchanged; only the faithful
-baseline's F-max rises, as the fix removes the frame ring that had been depressing its
-precision (−4.3&nbsp;% segments on the Full-HD corpus, ~0&nbsp;% on the improved config).</footer>
+vendored copy exactly). ELSED integrated 2026-07 across every axis of this page.</footer>
 </div></body></html>
