@@ -72,7 +72,25 @@ struct Params {
     double nfa_epsilon = 0.0;
     bool link_collinear = false;      // improvement 5: collinear linking
     double link_max_angle_deg = 4.0;
-    double link_max_gap = 4.0;
+    // Endpoint gap the linker may jump (px). Safe to raise well above the old
+    // default of 4 because candidates must also pass the lateral test below;
+    // 9 matches the largest jump of ELSED's discontinuity handling and
+    // measured best on the synthetic F-max protocol.
+    double link_max_gap = 9.0;
+    // Lateral consistency: a candidate may link only if every endpoint of each
+    // segment lies within this many px of the OTHER segment's infinite line.
+    // Without this test the direction+gap rule fuses the two parallel flanks
+    // of a thin bar (3 px apart, same direction, endpoints within gap at the
+    // bar's ends) into one diagonal — raising link_max_gap above ~4 then
+    // collapses detection on parallel structure.
+    double link_lateral_tol = 1.0;
+    // Two-stage length threshold: while linking, the judge admits fragments
+    // with at least this many pixels, and the configured pixel_num_th is
+    // enforced on the LINKED chain's total pixel count when it leaves the
+    // linker. Noise-broken runs are thereby reassembled before the length
+    // test instead of dying piecemeal (the streaming analogue of ELSED's
+    // gap jumping). Has effect only when < pixel_num_th.
+    int link_admit_pix = 5;
 
     // ---- new accuracy improvements (this work) -----------------------------
     // Two ideas were evaluated and DROPPED after testing (see the accuracy/speed

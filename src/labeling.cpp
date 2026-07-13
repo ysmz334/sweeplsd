@@ -139,6 +139,7 @@ struct Labeler::Impl {
         LineSegment seg;
         float dirx, diry;
         int max_y;
+        bool prov;  // provisional: every part was admitted below pixel_num_th
     };
     std::vector<Active> active;
 
@@ -183,8 +184,26 @@ struct Labeler::Impl {
         }
     }
 
+    // Two-stage length threshold (see Params::link_admit_pix): fragments were
+    // admitted into the linker below pixel_num_th; a chain that is still
+    // provisional (no part ever cleared pixel_num_th on its own) is kept only
+    // if its Chebyshev SPAN clears the threshold — the chain must evidence
+    // actual length. Span, not accumulated pixel count, is the deliberate
+    // choice: a pixel-count gate re-admits dense wiggly chains of noise
+    // fragments (many pixels, short span) and measurably floods precision at
+    // high noise. Anything the judge accepted at the full threshold is never
+    // dropped here.
+    void flushActive(const Active& a) {
+        if (a.prov) {
+            double cheb = std::max(std::fabs(double(a.seg.x1) - a.seg.x0),
+                                   std::fabs(double(a.seg.y1) - a.seg.y0));
+            if (cheb + 1.0 < double(params.pixel_num_th)) return;
+        }
+        pushOut(a.seg);
+    }
+
     // Improvement 5: try to extend `s` by joining a collinear active segment.
-    void emit(LineSegment s, const LineSegmentEx* ex = nullptr) {
+    void emit(LineSegment s, bool prov, const LineSegmentEx* ex = nullptr) {
         if (!params.link_collinear) {
             pushOut(s, ex);
             return;
@@ -195,7 +214,7 @@ struct Labeler::Impl {
         std::vector<Active> keep;
         keep.reserve(active.size());
         for (const Active& a : active) {
-            if (a.max_y < cur_y - band) pushOut(a.seg);
+            if (a.max_y < cur_y - band) flushActive(a);
             else keep.push_back(a);
         }
         active.swap(keep);
@@ -217,6 +236,22 @@ struct Labeler::Impl {
                 if (dirAngle(sdx, sdy, t.dirx, t.diry) > max_ang) continue;
                 float se[2][2] = {{s.x0, s.y0}, {s.x1, s.y1}};
                 float te[2][2] = {{t.seg.x0, t.seg.y0}, {t.seg.x1, t.seg.y1}};
+                // Lateral consistency (see Params::link_lateral_tol): the
+                // candidate must lie on s's LINE, not merely be parallel to
+                // it, and vice versa — otherwise a gap wider than a thin
+                // bar's width fuses the bar's two parallel flanks.
+                {
+                    double lat = 0;
+                    for (int b = 0; b < 2; ++b) {
+                        double vx = double(te[b][0]) - s.x0, vy = double(te[b][1]) - s.y0;
+                        lat = std::max(lat, std::fabs(vx * sdy - vy * sdx));
+                    }
+                    for (int a2 = 0; a2 < 2; ++a2) {
+                        double vx = double(se[a2][0]) - t.seg.x0, vy = double(se[a2][1]) - t.seg.y0;
+                        lat = std::max(lat, std::fabs(vx * t.diry - vy * t.dirx));
+                    }
+                    if (lat > params.link_lateral_tol) continue;
+                }
                 double gap = 1e30;
                 for (int a = 0; a < 2; ++a)
                     for (int b = 0; b < 2; ++b)
@@ -239,20 +274,26 @@ struct Labeler::Impl {
                 s = m;
                 sdx = mdx;
                 sdy = mdy;
+                prov = prov && t.prov;
                 active.erase(active.begin() + i);
                 linked = true;
                 break;
             }
         }
         int my = int(std::lround(std::max(s.y0, s.y1)));
-        active.push_back({s, sdx, sdy, my});
+        active.push_back({s, sdx, sdy, my, prov});
     }
 
     // Line judgment (thesis §3.2.4): enough pixels (criterion 1) + the new
     // hysteresis gate + elongated enough scatter (criterion 4, PCA), then
     // optional NFA gate, then emit.
     void judgeAndRegister(const LabelHot& L, int sx, int sy, int ex, int ey) {
-        if (L.pix_num < params.pixel_num_th) return;
+        // Two-stage threshold: with linking on, admit smaller fragments into
+        // the linker; pixel_num_th is enforced on the linked chain at flush.
+        const int admit_th = params.link_collinear
+                                 ? std::min(params.pixel_num_th, params.link_admit_pix)
+                                 : params.pixel_num_th;
+        if (L.pix_num < admit_th) return;
         if (params.use_hysteresis && int(L.strong_cnt) < params.hysteresis_strong_min) return;
         // (i) border margin: drop a segment whose bounding box reaches within
         // border_margin px of the frame (the 2x2 gradient bias fringes the image
@@ -332,7 +373,7 @@ struct Labeler::Impl {
         s.x1 += lshift; s.y1 += lshift;
         if (!passesNfa(L.pix_num, s)) return;
 
-        if (!want_ex) { emit(s); return; }
+        if (!want_ex) { emit(s, L.pix_num < params.pixel_num_th); return; }
         // Per-segment scatter statistics: normalised covariance (variance in
         // px^2) regardless of the weighting branch, so eigenvalues are
         // physically meaningful.
@@ -350,7 +391,7 @@ struct Labeler::Impl {
         e.dir_y = float(std::sin(theta_n));
         e.ev_max = float(0.5 * (tr + rt));
         e.ev_min = float(0.5 * (tr - rt));
-        emit(s, &e);
+        emit(s, L.pix_num < params.pixel_num_th, &e);
     }
 
     void accumulate(LabelHot& L, int x, int y, double w, double fx, double fy, bool strong) {
@@ -538,7 +579,7 @@ void Labeler::processRow(int y, const Feature* above, const Feature* cur, const 
     impl_->processRow(y, above, cur, below, power, dir, delta);
 }
 std::vector<LineSegment> Labeler::takeSegments() {
-    for (const auto& a : impl_->active) impl_->pushOut(a.seg);  // flush remaining linked segments
+    for (const auto& a : impl_->active) impl_->flushActive(a);  // flush remaining linked segments
     impl_->active.clear();
     return std::move(impl_->segments);
 }

@@ -215,7 +215,7 @@ int main(int argc, char** argv) {
 
     sweeplsd::Params imp = sweeplsd::Params::improved();
     sweeplsd::Params implink = sweeplsd::Params::improved();
-    implink.link_collinear = true; implink.link_max_gap = 3.0;
+    implink.link_collinear = true;  // linker defaults (lateral tol, gap, two-stage)
 
     struct Method { std::string key, label; unsigned char col[3]; };
     std::vector<Method> methods = {

@@ -263,8 +263,7 @@ std::vector<LineSegment> runSweeplsdImproved(const sweeplsd::GrayImage& src, int
 std::vector<LineSegment> runSweeplsdImprovedLink(const sweeplsd::GrayImage& src, int pixel_num_th) {
     sweeplsd::Params p = sweeplsd::Params::improved();
     p.pixel_num_th = pixel_num_th;
-    p.link_collinear = true;
-    p.link_max_gap = 3.0;
+    p.link_collinear = true;  // linker defaults: lateral tol, gap, two-stage admit
     return sweeplsd::detect(src, p);
 }
 

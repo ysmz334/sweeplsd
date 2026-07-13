@@ -605,7 +605,7 @@ int main(int argc, char** argv) {
     };
     auto runSweeplsdImpLink = [](const sweeplsd::GrayImage& s) {
         sweeplsd::Params p = sweeplsd::Params::improved();
-        p.link_collinear = true; p.link_max_gap = 3.0;
+        p.link_collinear = true;  // linker defaults (lateral tol, gap, two-stage)
         return sweeplsd::detect(s, p);
     };
     auto runEd = [](const sweeplsd::GrayImage& s) { return edlines::detect(s); };

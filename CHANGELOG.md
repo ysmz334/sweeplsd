@@ -1,5 +1,28 @@
 # Changelog
 
+## Unreleased
+
+- **Stronger collinear linking** (`Params::link_collinear`, still off by
+  default). The linker used to match on direction + endpoint gap alone, so a
+  gap above ~4 px fused the two parallel flanks of a thin bar into one
+  diagonal; three changes make larger jumps safe and useful:
+  - **Lateral consistency** (`link_lateral_tol`, default 1 px): segments may
+    link only if each one's endpoints lie on the *line* of the other, not
+    merely parallel to it.
+  - `link_max_gap` default **4 → 9 px** (the largest discontinuity jump of
+    ELSED, safe under the lateral test) — junction cuts and noise breaks are
+    jumped.
+  - **Two-stage length threshold** (`link_admit_pix`, default 5): fragments
+    at least that many pixels enter the linker, and a chain that never
+    cleared `pixel_num_th` on its own must evidence that length as *span*
+    when it leaves; segments the judge accepted at the full threshold are
+    never dropped.
+
+  Synthetic-GT F-max (strict one-to-one) for improved+link: σ0 0.966→0.973,
+  σ10 →0.953, σ20 0.907→**0.935** (previous linker: 0.969/0.949/0.920);
+  geometry errors unchanged. Isotropy probes: circles stay **0**, curve
+  chords are not assembled (zone 27→32, CoV 1.58→1.37).
+
 ## v1.1.0 (2026-07-13)
 
 The FPGA release: the thesis proposed OPLSD as a hardware-oriented method but

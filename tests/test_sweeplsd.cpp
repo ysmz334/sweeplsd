@@ -309,7 +309,7 @@ int main(int argc, char** argv) {
         cfgs.push_back({"(+3 gradWeight)", wq});  // side-test, not in the chain
         Params q = p; q.use_nfa = true; q.nfa_window_rows = 128;
         cfgs.push_back({"+g localNFA", q});
-        Params r = q; r.link_collinear = true; r.link_max_gap = 3.0;
+        Params r = q; r.link_collinear = true;
         cfgs.push_back({"+link (imp.5)", r});
 
         std::printf("== %s (contrast=%.0f, noise sigma=%.0f, %d scenes, %zu GT lines) ==\n",
