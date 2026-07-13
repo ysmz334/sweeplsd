@@ -289,7 +289,7 @@ int main(int argc, char** argv) {
         else if (!a.empty() && a[0] != '-') manifest_path = a;
     }
     if (manifest_path.empty() || out_path.empty()) {
-        std::printf("Usage: %s <manifest.txt> --out rows.csv [--methods imp,lsd,edreal,elsed]\n"
+        std::printf("Usage: %s <manifest.txt> --out rows.csv [--methods imp,implink,lsd,edreal,elsed]\n"
                     "       [--edreal-dir D] [--elsed-dir D] [--seed-cap-s N] [--vprior-mode M]\n",
                     argv[0]);
         return 1;
@@ -344,6 +344,11 @@ int main(int argc, char** argv) {
             if (gray.width == 0) { std::printf("  skip (load fail): %s\n", r.path.c_str()); continue; }
         }
         if (want("imp")) ms.push_back({"imp", sweeplsd::detect(gray, sweeplsd::Params::improved())});
+        if (want("implink")) {  // note: "implink" also selects "imp" (substring), a same-run anchor
+            sweeplsd::Params p = sweeplsd::Params::improved();
+            p.link_collinear = true;
+            ms.push_back({"implink", sweeplsd::detect(gray, p)});
+        }
         if (want("lsd")) ms.push_back({"lsd", runLsd(gray)});
         if (want("edreal") && !edreal_dir.empty()) {
             std::vector<LineSegment> v;
