@@ -194,11 +194,14 @@ std::vector<LineSegment> runLsd(const GrayImage& s) {
 
 int main(int argc, char** argv) {
     int N = 1024;
-    std::string od = ".", mlsd_dir, edreal_dir;
+    std::string od = ".", mlsd_dir, edreal_dir, elsed_dir;
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
         if (a == "--mlsd-dir" && i + 1 < argc) mlsd_dir = argv[++i];
         else if (a == "--edreal-dir" && i + 1 < argc) edreal_dir = argv[++i];
+        // --elsed-dir DIR : genuine ELSED results per probe, "iso_<key>.txt"
+        // (same file format as the EDLines runner).
+        else if (a == "--elsed-dir" && i + 1 < argc) elsed_dir = argv[++i];
         else if (!a.empty() && a[0] != '-') od = a;
     }
     double R = N * 0.47;
@@ -223,6 +226,8 @@ int main(int argc, char** argv) {
         {"ed", "EDLines-style", {106, 191, 138}}};
     if (!edreal_dir.empty())
         methods.push_back({"edreal", "EDLines (ED_Lib)", {46, 158, 79}});
+    if (!elsed_dir.empty())
+        methods.push_back({"elsed", "ELSED", {184, 134, 11}});
     if (!mlsd_dir.empty())
         methods.push_back({"mlsd", "M-LSD", {214, 40, 120}});
 
@@ -240,6 +245,7 @@ int main(int argc, char** argv) {
             else if (m.key == "sweeplsdimplink") segs = sweeplsd::detect(c.img, implink);
             else if (m.key == "lsd") segs = runLsd(c.img);
             else if (m.key == "edreal") readEdRealFile(edreal_dir + "/iso_" + c.key + ".txt", segs);
+            else if (m.key == "elsed") readEdRealFile(elsed_dir + "/iso_" + c.key + ".txt", segs);
             else if (m.key == "mlsd") readMlsdFile(mlsd_dir + "/iso_" + c.key + "_mlsd.txt", segs);
             else segs = edlines::detect(c.img);
 

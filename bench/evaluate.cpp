@@ -386,7 +386,7 @@ std::string prCurveSvg(const std::vector<Curve>& curves, const std::string& titl
 
 int main(int argc, char** argv) {
     int w = 1280, h = 720, n_seg = 18, images = 4;
-    std::string html_path, assets_dir, dump_dir, mlsd_dir, edreal_dir;
+    std::string html_path, assets_dir, dump_dir, mlsd_dir, edreal_dir, elsed_dir;
     std::vector<double> sigmas = {0, 5, 10, 20};
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
@@ -405,9 +405,14 @@ int main(int argc, char** argv) {
         //   (sigma,image,knob) as "eval_s<sig>_im<im>_k<ki>.txt" (see
         //   tools/edlines_real.exe --minlen), scored by the SAME matcher.
         else if (a == "--edreal-dir" && i + 1 < argc) edreal_dir = argv[++i];
+        // --elsed-dir DIR : ingest genuine ELSED segments per (sigma,image,knob)
+        //   as "eval_s<sig>_im<im>_k<ki>.txt" (elsed_runner --minlen sweep over
+        //   the same values as the EDLines minlen knob), same matcher.
+        else if (a == "--elsed-dir" && i + 1 < argc) elsed_dir = argv[++i];
     }
     const bool have_mlsd = !mlsd_dir.empty();
     const bool have_edreal = !edreal_dir.empty();
+    const bool have_elsed = !elsed_dir.empty();
     // M-LSD score-threshold sweep (its principal sensitivity knob; lower = more
     // detections). Must match the values mlsd_runner.py is invoked with.
     const std::vector<double> mlsd_knobs = {0.30, 0.20, 0.10, 0.05, 0.02};
@@ -443,6 +448,11 @@ int main(int argc, char** argv) {
         std::vector<Stats> acc_ed(ed_knobs.size());
         std::vector<Stats> acc_mlsd(mlsd_knobs.size());
         std::vector<Stats> acc_edreal(ed_knobs.size());
+        std::vector<Stats> acc_elsed(ed_knobs.size());
+        // ELSED aborts (upstream assert) below minLineLen ~7-10, so some knob
+        // files may be absent; a knob joins the curve only if every image of
+        // the condition produced a result.
+        std::vector<int> elsed_got(ed_knobs.size(), 0);
 
         for (int im = 0; im < images; ++im) {
             sweeplsd::GrayImage img = addNoise(cleans[im], w, h, sigma, 7000u + im);
@@ -474,6 +484,15 @@ int main(int argc, char** argv) {
                                    std::to_string(im) + "_k" + std::to_string(k) + ".txt", er);
                     acc_edreal[k].add(matchSegments(gt, er, tau, ang_th));
                 }
+            if (have_elsed)
+                for (std::size_t k = 0; k < ed_knobs.size(); ++k) {
+                    std::vector<LineSegment> el;
+                    if (readEdRealFile(elsed_dir + "/eval_s" + sigTag(sigma) + "_im" +
+                                       std::to_string(im) + "_k" + std::to_string(k) + ".txt", el)) {
+                        acc_elsed[k].add(matchSegments(gt, el, tau, ang_th));
+                        ++elsed_got[k];
+                    }
+                }
         }
 
         auto buildCurve = [&](const std::string& name, const std::string& color,
@@ -493,6 +512,14 @@ int main(int argc, char** argv) {
         cond.curves.push_back(buildCurve("LSD", "#e8820c", acc_lsd, lsd_knobs));
         if (have_edreal)
             cond.curves.push_back(buildCurve("EDLines (ED_Lib)", "#2e9e4f", acc_edreal, ed_knobs));
+        if (have_elsed) {
+            std::vector<Stats> acc_f;
+            std::vector<int> knobs_f;
+            for (std::size_t k = 0; k < ed_knobs.size(); ++k)
+                if (elsed_got[k] == images) { acc_f.push_back(acc_elsed[k]); knobs_f.push_back(ed_knobs[k]); }
+            if (!acc_f.empty())
+                cond.curves.push_back(buildCurve("ELSED", "#b8860b", acc_f, knobs_f));
+        }
         cond.curves.push_back(buildCurve("EDLines-style", "#6abf8a", acc_ed, ed_knobs));
         if (have_mlsd)
             cond.curves.push_back(buildCurve("M-LSD", "#d62878", acc_mlsd, mlsd_knobs));
