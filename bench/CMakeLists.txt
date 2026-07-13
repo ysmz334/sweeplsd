@@ -28,7 +28,7 @@ endif()
 add_library(bench_common OBJECT edlines.cpp)
 target_link_libraries(bench_common PUBLIC sweeplsd sweeplsd_io)
 
-foreach(tool evaluate yud_eval time_methods gen_isotropy)
+foreach(tool evaluate yud_eval time_methods gen_isotropy vp_bestcfg)
   add_executable(sweeplsd_${tool} ${tool}.cpp $<TARGET_OBJECTS:bench_common>)
   target_link_libraries(sweeplsd_${tool} PRIVATE sweeplsd sweeplsd_io lsd_baseline)
   target_include_directories(sweeplsd_${tool} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
