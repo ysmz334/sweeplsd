@@ -219,7 +219,7 @@ int main(int argc, char** argv) {
         return 1;
     }
     const std::string dir = argv[1];
-    Params params;  // baseline — the phase-2 target, same as phase 1
+    Params params = Params::original2014();  // baseline — the phase-2 target, same as phase 1
     std::string suffix;
     int argi = 2;
     if (argi < argc && std::string(argv[argi]) == "--improved") {

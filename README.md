@@ -46,7 +46,7 @@ the estimator choice — see `docs/vp_evaluation.html`.
 
 int main() {
     sweeplsd::GrayImage img = sweeplsd::loadGray("photo.png");
-    auto segments = sweeplsd::detect(img, sweeplsd::Params::improved());
+    auto segments = sweeplsd::detect(img);  // the default Params{} is the shipped configuration
     // segments[i].x0 / y0 / x1 / y1  (sub-pixel endpoints)
     sweeplsd::saveSegmentVisualization("out.png", img, segments);
 }
@@ -88,10 +88,12 @@ Five stages, all expressed as row streams over the raster sweep:
 Two drivers share the same kernels and are tested to produce identical output:
 `detect()` (one full-image pass per stage — easiest to read) and
 `detectOnePass()` (the streaming single-sweep driver — O(width) memory, and
-the fastest configuration). `Params{}` reproduces the 2014 thesis;
-`Params::improved()` adds measured improvements (sub-pixel NMS, streaming
-hysteresis, curve rejection, half-pixel lattice correction, …), each
-individually documented and benchmarked.
+the fastest configuration). `Params{}` is SweepLSD as published: the measured
+refinements (sub-pixel NMS, streaming hysteresis, curve rejection, half-pixel
+lattice correction, …) are all enabled, each individually documented,
+benchmarked, and disableable; `Params::original2014()` reproduces the 2014
+thesis implementation's behaviour. (`Params::improved()` remains as an alias
+of the default for code written against earlier releases.)
 
 The full explanation with per-stage figures is in [the docs](https://ysmz334.github.io/sweeplsd/).
 

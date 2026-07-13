@@ -249,7 +249,7 @@ sweeplsd::GrayImage addNoise(const std::vector<float>& clean, int w, int h,
 // ---------------------------------------------------------------------------
 
 std::vector<LineSegment> runSweeplsd(const sweeplsd::GrayImage& src, int pixel_num_th) {
-    sweeplsd::Params p;
+    sweeplsd::Params p = sweeplsd::Params::original2014();
     p.pixel_num_th = pixel_num_th;
     return sweeplsd::detect(src, p);
 }

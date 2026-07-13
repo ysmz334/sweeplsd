@@ -246,7 +246,7 @@ int main(int argc, char** argv) {
     // ---------- 1. parity: multi-pass == one-pass, every config -------------
     {
         std::vector<std::pair<std::string, Params>> cfgs;
-        Params base;
+        Params base = Params::original2014();
         cfgs.push_back({"baseline", base});
         Params p = base; p.nms_strict_tiebreak = true; cfgs.push_back({"strict", p});
         p = base; p.subpixel_nms = true; cfgs.push_back({"subpix", p});
@@ -297,7 +297,7 @@ int main(int argc, char** argv) {
             scenes.push_back(makeScene(640, 480, 160, contrast, sigma, 100 + s));
 
         std::vector<std::pair<std::string, Params>> cfgs;
-        Params base;
+        Params base = Params::original2014();
         cfgs.push_back({"baseline (orig)", base});
         Params p = base; p.nms_strict_tiebreak = true; cfgs.push_back({"+a strictNMS", p});
         p.subpixel_nms = true; cfgs.push_back({"+c subpixel", p});
@@ -336,7 +336,7 @@ int main(int argc, char** argv) {
     {
         Params imp = Params::improved();
         savePpm("out_baseline.ppm", scenes_hi[0].img,
-                detect(scenes_hi[0].img, Params{}));
+                detect(scenes_hi[0].img, Params::original2014()));
         savePpm("out_improved.ppm", scenes_hi[0].img,
                 detect(scenes_hi[0].img, imp));
     }
@@ -346,7 +346,7 @@ int main(int argc, char** argv) {
         int fails = 0;
         for (auto [tw, th2] : {std::pair<int,int>{0,0},{1,1},{3,2},{2,7},{5,5},{7,7},{8,1}}) {
             GrayImage im(tw, th2, 128);
-            for (auto& cfg : {Params{}, Params::improved()}) {
+            for (auto& cfg : {Params::original2014(), Params{}}) {
                 auto a = detect(im, cfg);
                 auto b = detectOnePass(im, cfg);
                 if (!sameSegments(a, b)) { std::printf("TINY FAIL %dx%d\n", tw, th2); ++fails; }
@@ -364,8 +364,8 @@ int main(int argc, char** argv) {
         const int runs = quickRuns;
 
         struct Cfg { const char* name; Params p; };
-        Params b0;                       b0.sparse_feature_scan = b0.sparse_label_scan = false;
-        Params b1;                       // baseline + sparse (default on)
+        Params b0 = Params::original2014();  b0.sparse_feature_scan = b0.sparse_label_scan = false;
+        Params b1 = Params::original2014();  // baseline + sparse (default on)
         Params i0 = Params::improved();  i0.sparse_feature_scan = i0.sparse_label_scan = false;
         Params i1 = Params::improved();
         Cfg cfgs[] = {{"baseline  dense ", b0}, {"baseline  sparse", b1},
@@ -394,8 +394,8 @@ int main(int argc, char** argv) {
         const int runs = quickRuns;
 
         struct Cfg { const char* name; Params p; };
-        Params b0;                       b0.sparse_feature_scan = b0.sparse_label_scan = false;
-        Params b1;                       // baseline + sparse (default on)
+        Params b0 = Params::original2014();  b0.sparse_feature_scan = b0.sparse_label_scan = false;
+        Params b1 = Params::original2014();  // baseline + sparse (default on)
         Params i0 = Params::improved();  i0.sparse_feature_scan = i0.sparse_label_scan = false;
         Params i1 = Params::improved();
         Cfg cfgs[] = {{"baseline  dense ", b0}, {"baseline  sparse", b1},

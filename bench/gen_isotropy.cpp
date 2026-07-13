@@ -240,7 +240,7 @@ int main(int argc, char** argv) {
         std::printf("  %-16s %7s %10s %8s\n", "method", "nseg", "totLen", "CoV");
         for (Method& m : methods) {
             std::vector<LineSegment> segs;
-            if (m.key == "sweeplsd") segs = sweeplsd::detect(c.img, sweeplsd::Params{});
+            if (m.key == "sweeplsd") segs = sweeplsd::detect(c.img, sweeplsd::Params::original2014());
             else if (m.key == "sweeplsdimp") segs = sweeplsd::detect(c.img, imp);
             else if (m.key == "sweeplsdimplink") segs = sweeplsd::detect(c.img, implink);
             else if (m.key == "lsd") segs = runLsd(c.img);

@@ -599,7 +599,7 @@ int main(int argc, char** argv) {
         readMlsdFile(mlsd_dir + "/" + name + ".txt", v);
         return v;
     };
-    auto runSweeplsd = [](const sweeplsd::GrayImage& s) { return sweeplsd::detect(s, sweeplsd::Params{}); };
+    auto runSweeplsd = [](const sweeplsd::GrayImage& s) { return sweeplsd::detect(s, sweeplsd::Params::original2014()); };
     auto runSweeplsdImp = [](const sweeplsd::GrayImage& s) {
         return sweeplsd::detect(s, sweeplsd::Params::improved());
     };

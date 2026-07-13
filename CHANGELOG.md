@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+- **BREAKING: `Params{}` is now the shipped configuration** (all measured
+  refinements enabled), matching how the paper presents SweepLSD — one
+  detector, one configuration. Code that relied on the old default's
+  2014-thesis behaviour should switch to the new
+  **`Params::original2014()`**; `Params::improved()` remains as an alias of
+  the default, so code written against earlier releases keeps compiling and
+  keeps its meaning. The CLI gained `--2014` for the original behaviour, and
+  all benches/testbenches/golden-vector generators were moved to
+  `original2014()` where they measured the 2014 configuration (their outputs
+  are unchanged).
+
 ## v1.2.0 (2026-07-13)
 
 - **Stronger collinear linking** (`Params::link_collinear`, still off by

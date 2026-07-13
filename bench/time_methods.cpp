@@ -110,10 +110,11 @@ int main(int argc, char** argv) {
     if ((int)names.size() > limit) names.resize(limit);
     if (names.empty()) { std::printf("no .png in %s\n", indir.c_str()); return 1; }
 
-    Method mm{"SweepLSD (multi)"}, m1{"SweepLSD (one-pass)"},
-           im{"SweepLSD-improved (multi)"}, i1{"SweepLSD-improved (one)"},
+    Method mm{"SweepLSD-2014 (multi)"}, m1{"SweepLSD-2014 (one-pass)"},
+           im{"SweepLSD (multi)"}, i1{"SweepLSD (one)"},
            lsd_m{"LSD"}, ed{"EDLines-style"}, edr{"EDLines (ED_Lib)"};
-    const sweeplsd::Params imp = sweeplsd::Params::improved();
+    const sweeplsd::Params imp = sweeplsd::Params{};
+    const sweeplsd::Params orig = sweeplsd::Params::original2014();
 
     std::printf("timing %zu images, median of %d runs each ...\n", names.size(), runs);
     int done = 0;
@@ -121,8 +122,8 @@ int main(int argc, char** argv) {
         GrayImage s = sweeplsd::loadGray(indir + "/" + n);
         if (s.width == 0) { std::printf("  LOAD FAIL %s\n", n.c_str()); continue; }
         std::vector<LineSegment> seg;
-        mm.ms.push_back(timeMedian(runs, [&]{ seg = sweeplsd::detect(s, sweeplsd::Params{}); }));       mm.segs.push_back(seg.size());
-        m1.ms.push_back(timeMedian(runs, [&]{ seg = sweeplsd::detectOnePass(s, sweeplsd::Params{}); }));  m1.segs.push_back(seg.size());
+        mm.ms.push_back(timeMedian(runs, [&]{ seg = sweeplsd::detect(s, orig); }));       mm.segs.push_back(seg.size());
+        m1.ms.push_back(timeMedian(runs, [&]{ seg = sweeplsd::detectOnePass(s, orig); }));  m1.segs.push_back(seg.size());
         im.ms.push_back(timeMedian(runs, [&]{ seg = sweeplsd::detect(s, imp); }));                     im.segs.push_back(seg.size());
         i1.ms.push_back(timeMedian(runs, [&]{ seg = sweeplsd::detectOnePass(s, imp); }));              i1.segs.push_back(seg.size());
         lsd_m.ms.push_back(timeMedian(runs, [&]{ seg = runLsd(s); }));                              lsd_m.segs.push_back(seg.size());

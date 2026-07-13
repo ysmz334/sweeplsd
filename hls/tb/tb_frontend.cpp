@@ -292,7 +292,7 @@ static void testImage(const char* name, const GrayImage& src, const Params& para
 }
 
 int main(int argc, char** argv) {
-    Params params;  // baseline (thesis behaviour) — the phase-1 target
+    Params params = Params::original2014();  // baseline (thesis behaviour) — the phase-1 target
     // v2c improved-mode switches — each turns the feature on in BOTH the
     // software golden and the HLS chain (+ host finalisation), validating
     // that path end-to-end over the same corpus.

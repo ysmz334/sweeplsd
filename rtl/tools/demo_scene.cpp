@@ -50,7 +50,7 @@ int main(int argc, char** argv) {
         for (int x = 0; x < w; ++x) img.at(x, y) = scene(x, y);
     saveGrayPng(dir + "/scene.png", img);
 
-    Params params;  // baseline — exactly what the bitstream hardcodes
+    Params params = Params::original2014();  // baseline — exactly what the v1 bitstream hardcodes
     std::vector<LineSegment> segs = detect(img, params);
     std::printf("baseline detect(): %zu segments (board LEDs show %zu & 0xFF = %zu)\n",
                 segs.size(), segs.size(), segs.size() & 0xFF);

@@ -27,7 +27,7 @@ int main(int argc, char** argv) {
     std::string in = argv[1], dir = argv[2];
     sweeplsd::GrayImage src = sweeplsd::loadGray(in);
     if (src.width == 0) { std::printf("Error: cannot load %s\n", in.c_str()); return 1; }
-    sweeplsd::Params params = sweeplsd::Params::improved();  // the shipped configuration
+    sweeplsd::Params params;  // the shipped configuration (the default)
 
     // Run the stages explicitly so each intermediate can be visualized.
     auto gaussian = sweeplsd::gaussianBlur(src);

@@ -10,8 +10,9 @@
 //
 // The algorithm was proposed as "OPLSD" in a 2014 master's thesis (Yoshiyasu
 // Shimizu, Waseda University); this library is its from-scratch reimplementation
-// plus measured improvements. `Params{}` reproduces the thesis behaviour;
-// `Params::improved()` enables the improvements (see each flag below).
+// plus measured refinements. `Params{}` is SweepLSD as published (every
+// refinement enabled — see each flag below); `Params::original2014()`
+// reproduces the 2014 thesis implementation's behaviour.
 //
 // Thesis section references (§...) throughout the sources point at that thesis.
 
@@ -92,26 +93,30 @@ struct Params {
     // gap jumping). Has effect only when < pixel_num_th.
     int link_admit_pix = 5;
 
-    // ---- new accuracy improvements (this work) -----------------------------
-    // Two ideas were evaluated and DROPPED after testing (see the accuracy/speed
-    // report's "improvement validity" section): a 4-direction gradient
-    // quantisation (former (b)) and the direction-coherence gate that depended
-    // on it (former (e)). On the thesis dataset and the synthetic-GT benchmark
-    // the 4-direction NMS *fragmented* diagonal and repetitive-texture edges
-    // (F-max fell ~0.4 vs ~0.9 at sigma=20; segment counts inflated up to 5x)
-    // while giving no gain on downstream vanishing-point accuracy, so the
-    // gradient direction stays quantised to H/V only. The remaining letters keep
-    // their original identifiers.
+    // ---- measured refinements (ON by default; the shipped configuration) ---
+    // Params{} IS SweepLSD as published: every refinement below is enabled.
+    // Each can be disabled individually, and Params::original2014() disables
+    // them all, reproducing the 2014 thesis implementation's behaviour.
+    //
+    // Two further ideas were evaluated and DROPPED after testing (see the
+    // accuracy/speed report's "improvement validity" section): a 4-direction
+    // gradient quantisation (former (b)) and the direction-coherence gate that
+    // depended on it (former (e)). On the thesis dataset and the synthetic-GT
+    // benchmark the 4-direction NMS *fragmented* diagonal and
+    // repetitive-texture edges (F-max fell ~0.4 vs ~0.9 at sigma=20; segment
+    // counts inflated up to 5x) while giving no gain on downstream
+    // vanishing-point accuracy, so the gradient direction stays quantised to
+    // H/V only. The remaining letters keep their original identifiers.
     // (a) strict tie-break in NMS: gradient plateaus thin to 1px instead of 2.
-    bool nms_strict_tiebreak = false;
+    bool nms_strict_tiebreak = true;
     // (c) sub-pixel NMS: parabolic interpolation of the power across the
     //     gradient gives a per-edge-pixel offset accumulated into the moments.
-    bool subpixel_nms = false;
+    bool subpixel_nms = true;
     // (d) streaming hysteresis: extract edges at a LOW threshold, but require
     //     each label to contain >= hysteresis_strong_min pixels whose power
     //     reaches the main (high) threshold. 1-pass equivalent of Canny's
     //     2-threshold hysteresis, folded into the labeling stage.
-    bool use_hysteresis = false;
+    bool use_hysteresis = true;
     int hysteresis_low_th = 120;       // low-threshold floor (high = gradient_power_th)
     int hysteresis_strong_min = 3;
     // Adapt the low threshold to the image's noise floor (a decayed power
@@ -121,7 +126,7 @@ struct Params {
     // (f) endpoints from projection extremes: instead of the first/last
     //     endpoint-candidate contacts, report the extreme points of the label's
     //     bounding box projected on the fitted axis (robust to >2 contacts).
-    bool endpoint_from_bbox = false;
+    bool endpoint_from_bbox = true;
     // (g) local NFA: exponential forgetting of the edge-density estimate
     //     (window in rows; 0 = global running density as before).
     int nfa_window_rows = 0;
@@ -131,14 +136,15 @@ struct Params {
     //     and is rejected. Complements the *relative* aspect_th with an
     //     *absolute* bound (a short low-curvature arc passes the ratio test but
     //     not this). 0 = off. Once-per-segment; integer form is ev_min <= th^2.
-    double max_perp_spread = 0.0;
+    double max_perp_spread = 1.0;
     // (i) border margin: reject a segment whose bounding box reaches within this
     //     many pixels of the image frame, so the boundary artifact (the gaussian/
     //     gradient step at the very edge gets detected as segments tracing the
     //     frame) is dropped. An integer bbox test on the segment's own extremes,
     //     applied once per segment at judgment (so it is bit-exact SW/HLS/RTL and
-    //     needs no per-pixel labelling change). 0 = off.
-    int border_margin = 0;
+    //     needs no per-pixel labelling change). 0 = off. (The default 3 clears
+    //     the ~2px inward bias of the 2x2 gradient on the bottom/right edge.)
+    int border_margin = 3;
     // (j) gradient-lattice half-pixel correction. The 2x2 gradient operator
     //     samples the gradient at the CORNER between four pixels, i.e. at
     //     (x+0.5, y+0.5) in pixel-centre coordinates, but the moments accumulate
@@ -148,26 +154,29 @@ struct Params {
     //     canonical LSD applies the identical correction to its output for the
     //     same reason ("points with an offset of (0.5,0.5), that should be
     //     added to output", lsd.c).
-    bool lattice_half_shift = false;
+    bool lattice_half_shift = true;
 
     // ---- speed switches (exact: do not change the output) ------------------
     bool sparse_feature_scan = true;  // 8px zero-word skip in the endpoint stage
     bool sparse_label_scan = true;    // 8px zero-word skip in the labeling stage
 
-    // All accuracy improvements on, with tuned defaults.
-    static Params improved() {
+    // The shipped configuration. Since v2.0 this is identical to Params{};
+    // kept so existing code that calls Params::improved() keeps compiling and
+    // keeps meaning the same thing.
+    static Params improved() { return Params{}; }
+
+    // The 2014 thesis implementation's behaviour: every refinement above
+    // switched off. Retained for reproduction and regression against the
+    // original; not recommended for applications.
+    static Params original2014() {
         Params p;
-        p.nms_strict_tiebreak = true;
-        p.subpixel_nms = true;
-        p.use_hysteresis = true;
-        p.hysteresis_low_th = 120;
-        p.hysteresis_strong_min = 3;
-        p.endpoint_from_bbox = true;
-        p.max_perp_spread = 1.0;  // (h) reject curved arcs (keeps straight lines)
-        p.border_margin = 3;      // (i) drop the image-frame boundary artifact
-                                  //     (the 2x2 gradient biases it ~2px in on
-                                  //     the bottom/right edge, so 3 clears it)
-        p.lattice_half_shift = true;  // (j) centre segments on the true edge
+        p.nms_strict_tiebreak = false;
+        p.subpixel_nms = false;
+        p.use_hysteresis = false;
+        p.endpoint_from_bbox = false;
+        p.max_perp_spread = 0.0;
+        p.border_margin = 0;
+        p.lattice_half_shift = false;
         return p;
     }
 };

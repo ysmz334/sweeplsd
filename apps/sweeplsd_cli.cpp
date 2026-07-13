@@ -15,13 +15,14 @@ void printUsage(const char* prog) {
         "Usage: " << prog << " <input-image> [output-image] [options]\n"
         "  input-image    path to a PNG/JPG/BMP image (read as grayscale)\n"
         "  output-image   visualization path (default: <input>_segments.png)\n"
-        "Options (override the reference defaults):\n"
+        "Options (override the shipped defaults):\n"
         "  --grad-th N     gradient power threshold     (default 256)\n"
-        "  --pix-th N      minimum pixels per segment   (default 16)\n"
-        "  --aspect-th F   max PCA eigenvalue ratio      (default 0.0078125)\n"
+        "  --pix-th N      minimum pixels per segment   (default 15)\n"
+        "  --aspect-th F   max PCA eigenvalue ratio      (default 0.05)\n"
         "  --nfa           enable a-contrario (NFA) validation (suppresses weak alignments)\n"
         "  --link          enable gap-tolerant collinear linking (joins fragments)\n"
-        "  --weight        weight the PCA fit by gradient strength (more accurate direction)\n";
+        "  --weight        weight the PCA fit by gradient strength (more accurate direction)\n"
+        "  --2014          run the 2014 thesis configuration (all refinements off)\n";
 }
 
 std::string defaultOutput(const std::string& input) {
@@ -50,6 +51,7 @@ int main(int argc, char** argv) {
         else if (arg == "--aspect-th") params.aspect_th = next(params.aspect_th);
         else if (arg == "--nfa") params.use_nfa = true;
         else if (arg == "--link") params.link_collinear = true;
+        else if (arg == "--2014") params = sweeplsd::Params::original2014();
         else if (arg == "--weight") params.weight_by_gradient = true;
         else if (arg.size() && arg[0] != '-') output = arg;
         else { printUsage(argv[0]); return 1; }

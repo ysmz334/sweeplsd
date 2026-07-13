@@ -72,11 +72,12 @@ auto-vectorize them, which keeps the code readable and portable.</p>
 <a href="fpga.html">runs live on a 2009-era FPGA</a> — HDMI in → detect → overlay out at
 1080p30, with no frame buffer.</p>
 
-<h2>3. Faithful baseline + measured improvements</h2>
-<p><code>Params{}</code> reproduces the 2014 thesis behaviour. <code>Params::improved()</code>
-enables a set of improvements, each of which was added only after measuring its effect on the
-three evaluation axes (synthetic-GT F-score, real-photo inspection, downstream vanishing
-points):</p>
+<h2>3. Measured refinements (all on by default)</h2>
+<p><code>Params{}</code> is SweepLSD as published: the refinements below are all enabled, and
+each was added only after measuring its effect on the three evaluation axes (synthetic-GT
+F-score, real-photo inspection, downstream vanishing points). Each can be disabled
+individually, and <code>Params::original2014()</code> reproduces the 2014 thesis
+implementation's behaviour:</p>
 <table><thead><tr><th>improvement</th><th style="text-align:left">what</th><th style="text-align:left">measured effect</th></tr></thead><tbody>
 <tr><td>strict NMS tie-break</td><td style="text-align:left">gradient plateaus thin to 1 px instead of 2</td><td style="text-align:left">cleaner edges, fewer duplicate labels</td></tr>
 <tr><td>sub-pixel NMS</td><td style="text-align:left">parabolic peak interpolation accumulated into the moments</td><td style="text-align:left">lateral error ↓</td></tr>
