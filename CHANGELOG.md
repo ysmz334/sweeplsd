@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v2.0.0 (2026-07-14)
 
 - **BREAKING: `Params{}` is now the shipped configuration** (all measured
   refinements enabled), matching how the paper presents SweepLSD — one
