@@ -26,7 +26,7 @@ baselines are the **genuine author implementations** (von Gioi's LSD; Akinlar
 
 | | SweepLSD (one-pass) | EDLines (ED_Lib) | LSD |
 |---|---|---|---|
-| Median time / frame | **~17 ms** | ~43 ms | ~230 ms |
+| Median time / frame | **~13 ms** | ~43 ms | ~230 ms |
 | Memory for intermediates | **O(width)** | O(pixels) | O(pixels) |
 | Segment direction error (synthetic GT) | **0.01–0.04°** | 0.14° | 0.14° |
 | F-max, clean–low noise (σ0–5) | **0.963–0.969** | 0.953–0.954 | 0.92 |
