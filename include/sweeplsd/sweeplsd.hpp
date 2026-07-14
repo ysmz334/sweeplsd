@@ -158,8 +158,11 @@ struct Params {
     bool lattice_half_shift = true;
 
     // ---- speed switches (exact: do not change the output) ------------------
-    bool sparse_feature_scan = true;  // 8px zero-word skip in the endpoint stage
-    bool sparse_label_scan = true;    // 8px zero-word skip in the labeling stage
+    // 8px zero-word skip in the endpoint stage. Kept because that stage runs the
+    // full 5x5 kernel on every pixel, so skipping blank runs saves real work.
+    // (The labeling stage had an analogous skip; it was removed — its scan is
+    // already cheap, so the skip left mean time unchanged while adding jitter.)
+    bool sparse_feature_scan = true;
 
     // The shipped configuration. Since v2.0 this is identical to Params{};
     // kept so existing code that calls Params::improved() keeps compiling and

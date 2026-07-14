@@ -484,7 +484,6 @@ struct Labeler::Impl {
         const bool weighted = params.weight_by_gradient && power != nullptr;
         const bool hysteresis = params.use_hysteresis && power != nullptr;
         const bool subpix = params.subpixel_nms && delta != nullptr && dir != nullptr;
-        const bool sparse = params.sparse_label_scan;
         const int strong_th = params.gradient_power_th;
 
         if (params.use_nfa) {  // running edge density for the a-contrario test
@@ -580,22 +579,21 @@ struct Labeler::Impl {
             }
         };
 
-        int x = 0;
-        while (x < width) {
-            // Speed: 8 consecutive Feature::None bytes (== zero uint64) cannot
-            // contain an Interior pixel — skip the whole word. Exact.
-            if (sparse && x + 8 <= width) {
-                std::uint64_t wd;
-                std::memcpy(&wd, cur + x, 8);
-                if (wd == 0) { x += 8; continue; }
-            }
-            const int x_end = sparse ? std::min(x + 8, width) : width;
-            for (; x < x_end; ++x) {
-                if (cur[x] != Feature::Interior) continue;
-                if (x == 0 || x == width - 1) pixel(x, std::true_type{});
-                else pixel(x, std::false_type{});
-            }
+        // Deterministic single left-to-right sweep. The two border columns
+        // (x==0, width-1) take the clamped Checked=true body; the interior
+        // [1, width-1) is always in range, so its hot loop needs no per-pixel
+        // border test. No zero-word skip: unlike the endpoint stage (which runs
+        // the full 5x5 kernel on every pixel, so skipping blank runs saves real
+        // work), the labeling body only fires on Interior pixels and the plain
+        // `!= Interior` scan is already cheap — the skip left mean time
+        // unchanged while adding content-dependent jitter, so it is omitted.
+        if (cur[0] == Feature::Interior) pixel(0, std::true_type{});
+        const int interior_end = width - 1;  // exclusive: last interior col is width-2
+        for (int x = 1; x < interior_end; ++x) {
+            if (cur[x] != Feature::Interior) continue;
+            pixel(x, std::false_type{});
         }
+        if (width > 1 && cur[width - 1] == Feature::Interior) pixel(width - 1, std::true_type{});
         prev_row.swap(cur_row);
     }
 };
