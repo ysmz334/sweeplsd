@@ -3,7 +3,9 @@
 #include <climits>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
+#include <stdexcept>
 #include <type_traits>
 #include <utility>
 
@@ -59,14 +61,57 @@ struct LabelCold {
     int start_x = 0, start_y = 0;
 };
 
+// Fixed-size label pool with a ring free-list of slot indices. The streaming
+// scan can only keep O(width) labels simultaneously live (the interior/void
+// alternating pattern bounds distinct components in a row at ⌈width/2⌉), so slots
+// are recycled the moment a label dies (see the end-of-row sweep in processRow)
+// instead of growing an unbounded table. This keeps the working set in cache and
+// the memory footprint O(width) — the same bounded design as the hardware form.
+//
+// The pool starts at the *practical* width/4 (real images peak far below it); if
+// an input needs more it grows up to the theoretical width/2 bound (an abnormal
+// but valid condition, reported via lastPoolGrowthEvents() + a stderr warning).
+// Needing more than width/2 is impossible for correct input, so it is a hard
+// error rather than a silent grow.
 struct LabelTable {
-    std::vector<LabelHot> hot{LabelHot{}};    // index 0 = reserved "no label" sentinel
-    std::vector<LabelCold> cold{LabelCold{}};
+    std::vector<LabelHot> hot;    // index 0 = reserved "no label" sentinel
+    std::vector<LabelCold> cold;
+    std::vector<int> free_list;   // stack of available slot indices
+    int hard_cap = 0;             // ⌈width/2⌉: exceeding it throws
+    int grow_events = 0;          // grows past the width/4 pool (abnormal; surfaced)
+
+    void init(int pool, int cap) {
+        hard_cap = cap;
+        hot.assign(std::size_t(pool) + 1, LabelHot{});   // index 0 = sentinel
+        cold.assign(std::size_t(pool) + 1, LabelCold{});
+        free_list.clear();
+        free_list.reserve(pool);
+        for (int i = pool; i >= 1; --i) free_list.push_back(i);  // pop returns 1,2,...
+        grow_events = 0;
+    }
     int create() {
+        if (!free_list.empty()) {
+            int id = free_list.back();
+            free_list.pop_back();
+            hot[id] = LabelHot{};    // full re-init of a recycled slot
+            cold[id] = LabelCold{};
+            return id;
+        }
+        // Pool exhausted. Grow up to the width/2 bound as a safety fallback so the
+        // output stays exact (surfaced via lastPoolGrowthEvents() + stderr). Past
+        // width/2 the theoretical bound is violated, which cannot happen for a
+        // correct input — raise a hard error instead of masking a bug.
+        if (int(hot.size()) - 1 >= hard_cap)
+            throw std::runtime_error(
+                "sweeplsd: simultaneously-live labels exceeded the width/2 bound "
+                "— impossible for correct input (label management bug?)");
+        int id = int(hot.size());
         hot.emplace_back();
         cold.emplace_back();
-        return int(hot.size()) - 1;
+        ++grow_events;
+        return id;
     }
+    void recycle(int id) { free_list.push_back(id); }
     // Union-find resolve with path compression.
     int find(int id) {
         int root = id;
@@ -144,7 +189,17 @@ struct Labeler::Impl {
     std::vector<Active> active;
 
     Impl(int w, int h, const Params& p, bool ex = false)
-        : width(w), height(h), params(p), prev_row(w, 0), cur_row(w, 0), want_ex(ex) {}
+        : width(w), height(h), params(p), prev_row(w, 0), cur_row(w, 0), want_ex(ex) {
+        // Label pool: start at the practical width/4 (real images peak far below
+        // it), allow growth up to the theoretical width/2 bound (reported as an
+        // abnormal event), and hard-error above width/2. Slots recycle through a
+        // ring free-list (see LabelTable and the end-of-row retire sweep), so the
+        // working set stays cache-resident and memory is O(width).
+        labels.init(std::max(64, w / 4), std::max(128, w / 2));
+        cur_live.reserve(std::size_t(w) / 2 + 16);
+        prev_live.reserve(std::size_t(w) / 2 + 16);
+    }
+    std::vector<int> cur_live, prev_live;  // slot ids with last_row == y / y-1
 
     // Improvement 1: project the two raw endpoints onto the least-squares line
     // (centroid + principal direction (dx, dy) from the moments), so the
@@ -394,15 +449,31 @@ struct Labeler::Impl {
         emit(s, L.pix_num < params.pixel_num_th, &e);
     }
 
+    // `Weighted` is a compile-time specialization of the moment update. The
+    // default (weight_by_gradient off) uses w == 1, so the unweighted path drops
+    // the six multiplies by w — bit-identical, since 1.0*v == v exactly in IEEE
+    // double. The weighted path is unchanged. `weighted` is loop-invariant, so
+    // the per-pixel dispatch below is a perfectly predicted branch.
+    template <bool Weighted>
     void accumulate(LabelHot& L, int x, int y, double w, double fx, double fy, bool strong) {
         L.pix_num += 1;
         L.strong_cnt += strong;
-        L.w_sum += w;
-        L.x_sum += w * fx;
-        L.x_sq_sum += w * fx * fx;
-        L.y_sum += w * fy;
-        L.y_sq_sum += w * fy * fy;
-        L.xy_sum += w * fx * fy;
+        if constexpr (Weighted) {
+            L.w_sum += w;
+            L.x_sum += w * fx;
+            L.x_sq_sum += w * fx * fx;
+            L.y_sum += w * fy;
+            L.y_sq_sum += w * fy * fy;
+            L.xy_sum += w * fx * fy;
+        } else {
+            (void)w;
+            L.w_sum += 1.0;
+            L.x_sum += fx;
+            L.x_sq_sum += fx * fx;
+            L.y_sum += fy;
+            L.y_sq_sum += fy * fy;
+            L.xy_sum += fx * fy;
+        }
         if (x < L.min_x) { L.min_x = x; L.min_x_y = y; }
         if (x > L.max_x) { L.max_x = x; L.max_x_y = y; }
         if (y < L.min_y) { L.min_y = y; L.min_y_x = x; }
@@ -457,7 +528,6 @@ struct Labeler::Impl {
         const bool weighted = params.weight_by_gradient && power != nullptr;
         const bool hysteresis = params.use_hysteresis && power != nullptr;
         const bool subpix = params.subpixel_nms && delta != nullptr && dir != nullptr;
-        const bool sparse = params.sparse_label_scan;
         const int strong_th = params.gradient_power_th;
 
         if (params.use_nfa) {  // running edge density for the a-contrario test
@@ -535,8 +605,16 @@ struct Labeler::Impl {
                 fx += ox;
                 fy += oy;
             }
-            accumulate(labels.h(center), x, y, weighted ? double(power[x]) : 1.0, fx, fy,
-                       hysteresis && power[x] >= strong_th);
+            // First touch of this slot in row y (last_row still < y): it joins
+            // the live set for this row. Recorded once (a second touch already
+            // has last_row == y) so the end-of-row sweep can retire slots that
+            // stop appearing.
+            if (labels.h(center).last_row < y) cur_live.push_back(center);
+            const bool strong = hysteresis && power[x] >= strong_th;
+            if (weighted)
+                accumulate<true>(labels.h(center), x, y, double(power[x]), fx, fy, strong);
+            else
+                accumulate<false>(labels.h(center), x, y, 1.0, fx, fy, strong);
             cur_row[x] = center;
 
             // Endpoint contact: Feature::Endpoint is the only value with bit 1
@@ -550,22 +628,34 @@ struct Labeler::Impl {
             }
         };
 
-        int x = 0;
-        while (x < width) {
-            // Speed: 8 consecutive Feature::None bytes (== zero uint64) cannot
-            // contain an Interior pixel — skip the whole word. Exact.
-            if (sparse && x + 8 <= width) {
-                std::uint64_t wd;
-                std::memcpy(&wd, cur + x, 8);
-                if (wd == 0) { x += 8; continue; }
-            }
-            const int x_end = sparse ? std::min(x + 8, width) : width;
-            for (; x < x_end; ++x) {
-                if (cur[x] != Feature::Interior) continue;
-                if (x == 0 || x == width - 1) pixel(x, std::true_type{});
-                else pixel(x, std::false_type{});
-            }
+        // Deterministic single left-to-right sweep. The two border columns
+        // (x==0, width-1) take the clamped Checked=true body; the interior
+        // [1, width-1) is always in range, so its hot loop needs no per-pixel
+        // border test. No zero-word skip: unlike the endpoint stage (which runs
+        // the full 5x5 kernel on every pixel, so skipping blank runs saves real
+        // work), the labeling body only fires on Interior pixels and the plain
+        // `!= Interior` scan is already cheap — the skip left mean time
+        // unchanged while adding content-dependent jitter, so it is omitted.
+        if (cur[0] == Feature::Interior) pixel(0, std::true_type{});
+        const int interior_end = width - 1;  // exclusive: last interior col is width-2
+        for (int x = 1; x < interior_end; ++x) {
+            if (cur[x] != Feature::Interior) continue;
+            pixel(x, std::false_type{});
         }
+        if (width > 1 && cur[width - 1] == Feature::Interior) pixel(width - 1, std::true_type{});
+
+        // Retire dead slots: a label that was live entering this row (prev_live)
+        // but was not touched during it (last_row < y) can never be extended or
+        // emit again, so its slot returns to the free-list. Output-invariant — a
+        // segment is only emitted on a second endpoint contact or a merge, both
+        // of which need a live pixel. Safe against the union-find aliasing: every
+        // id stored in cur_row is accumulate'd (last_row == y), so no live find()
+        // chain passes through a slot with last_row < y (proof in the design
+        // notes); once row y-1 scrolls out nothing references such a slot.
+        for (int id : prev_live)
+            if (labels.h(id).last_row < y) labels.recycle(id);
+        prev_live.swap(cur_live);
+        cur_live.clear();
         prev_row.swap(cur_row);
     }
 };
@@ -578,13 +668,33 @@ void Labeler::processRow(int y, const Feature* above, const Feature* cur, const 
                          const std::int8_t* delta) {
     impl_->processRow(y, above, cur, below, power, dir, delta);
 }
+// Number of label-pool grow events during the most recent detection on this
+// thread (0 = normal; > 0 means the input exceeded the practical width/4 label
+// budget and the pool had to grow toward the width/2 bound — output stays exact,
+// but it is an abnormal condition worth noticing. Exceeding width/2 itself is a
+// hard error thrown from create(), not counted here).
+namespace {
+thread_local int g_last_pool_growths = 0;
+void reportPoolGrowths(int n) {
+    g_last_pool_growths = n;
+    if (n > 0)
+        std::fprintf(stderr,
+                     "sweeplsd: label pool grew %d time(s) past the practical "
+                     "width/4 budget (still within the width/2 bound)\n",
+                     n);
+}
+}  // namespace
+int lastPoolGrowthEvents() { return g_last_pool_growths; }
+
 std::vector<LineSegment> Labeler::takeSegments() {
     for (const auto& a : impl_->active) impl_->flushActive(a);  // flush remaining linked segments
     impl_->active.clear();
+    reportPoolGrowths(impl_->labels.grow_events);
     return std::move(impl_->segments);
 }
 std::vector<LineSegmentEx> Labeler::takeSegmentsEx() {
     // Extended collection runs with linking disabled, so `active` is empty here.
+    reportPoolGrowths(impl_->labels.grow_events);
     return std::move(impl_->segments_ex);
 }
 

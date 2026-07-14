@@ -1,5 +1,39 @@
 # Changelog
 
+## v3.0.0 (2026-07-15)
+
+- **BREAKING: removed `Params::sparse_label_scan`.** The labeling row scan's
+  8&nbsp;px zero-word skip is gone; the scan is now a single deterministic
+  left-to-right sweep with the two border columns hoisted out of the hot loop.
+  The skip was mean-neutral but added content-dependent timing jitter (best
+  case sped up, worst case not helped). Code that set `sparse_label_scan` must
+  drop the assignment; the output is unchanged. (`sparse_feature_scan` is kept —
+  the endpoint stage runs its 5×5 kernel on every pixel, so skipping blank runs
+  there saves real work.)
+- **Bounded label pool — O(width) label memory.** The per-frame label table no
+  longer grows unbounded (it reached ~25k slots / ~2.5&nbsp;MB on a dense
+  Full-HD frame and never recycled). Both detectors now keep a **fixed pool of
+  label records addressed through a ring free-list** and recycle each label's
+  slot the moment it dies (end-of-row retire sweep, death rule `last_row < y`),
+  matching the thesis's bounded design. The pool starts at the practical
+  width/4 and grows toward the ⌈width/2⌉ theoretical bound only if an input
+  needs it. Working set drops to ~15&nbsp;KB (cache-resident): labeling is
+  ~2.4% faster on Full-HD/dense frames, the tail (p95) ~4% lower, and per-frame
+  time is far more stable under system load. **Output is bit-identical** to the
+  previous release (verified across the 150-image 720p corpus, default and
+  gradient-weighted). Full internals and the recycling safety proof:
+  `docs/labeling-internals.md`.
+- **New API: `lastPoolGrowthEvents()`.** Returns the number of label-pool
+  growths during the most recent `detect()`/`detectOnePass()` on the calling
+  thread (0 = normal). Growth past width/4 is surfaced via this counter plus a
+  stderr warning; needing more than width/2 is impossible for a correct input,
+  so it throws `std::runtime_error` rather than masking a bug.
+- **Streaming labeller speedup.** Templated unweighted-fast moment accumulation
+  (bit-identical when `weight_by_gradient` is off).
+- **One-pass hotspot profiling tools.** `sweeplsd_hotspots` (per-stage cycle
+  breakdown), a self-contained sampling line profiler (`tools/line_profiler.cpp`,
+  DWARF/`addr2line`-based, no PDB/VS needed), and `docs/profiling.md`.
+
 ## v2.0.0 (2026-07-14)
 
 - **BREAKING: `Params{}` is now the shipped configuration** (all measured

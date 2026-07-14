@@ -1,0 +1,3 @@
+# Batch files must keep CRLF: cmd.exe misparses caret (^) line-continuations
+# and if/goto blocks when a .bat has LF-only endings.
+*.bat text eol=crlf

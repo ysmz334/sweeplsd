@@ -158,8 +158,11 @@ struct Params {
     bool lattice_half_shift = true;
 
     // ---- speed switches (exact: do not change the output) ------------------
-    bool sparse_feature_scan = true;  // 8px zero-word skip in the endpoint stage
-    bool sparse_label_scan = true;    // 8px zero-word skip in the labeling stage
+    // 8px zero-word skip in the endpoint stage. Kept because that stage runs the
+    // full 5x5 kernel on every pixel, so skipping blank runs saves real work.
+    // (The labeling stage had an analogous skip; it was removed — its scan is
+    // already cheap, so the skip left mean time unchanged while adding jitter.)
+    bool sparse_feature_scan = true;
 
     // The shipped configuration. Since v2.0 this is identical to Params{};
     // kept so existing code that calls Params::improved() keeps compiling and
@@ -193,5 +196,15 @@ std::vector<LineSegmentEx> detectEx(const GrayImage& src, const Params& params =
 std::vector<LineSegment> detectOnePass(const GrayImage& src, const Params& params = Params{});
 
 std::vector<StageTiming> profileStages(const GrayImage& src, const Params& params, int runs);
+
+// Number of times the internal label pool had to grow during the most recent
+// detect()/detectEx()/detectOnePass() call ON THE CALLING THREAD. Normally 0:
+// the pool starts at the practical width/4 size and real images peak far below
+// it. A non-zero value means the input exceeded width/4 and the pool grew toward
+// the theoretical width/2 bound (output stays exact, and a warning was written
+// to stderr) — an abnormal condition worth flagging in evaluation. Needing more
+// than width/2 is impossible for a correct input, so it throws std::runtime_error
+// rather than being counted here. Reset at the start of each detection.
+int lastPoolGrowthEvents();
 
 }  // namespace sweeplsd

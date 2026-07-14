@@ -257,7 +257,7 @@ int main(int argc, char** argv) {
         p = base; p.weight_by_gradient = true; cfgs.push_back({"weight", p});
         p = base; p.link_collinear = true; cfgs.push_back({"link", p});
         cfgs.push_back({"improved", Params::improved()});
-        p = Params::improved(); p.sparse_feature_scan = p.sparse_label_scan = false;
+        p = Params::improved(); p.sparse_feature_scan = false;
         cfgs.push_back({"improved_nosparse", p});
 
         int fails = 0;
@@ -277,7 +277,7 @@ int main(int argc, char** argv) {
         for (unsigned seed = 1; seed <= 3; ++seed) {
             Scene sc = makeScene(640, 480, 160, 95.0, 8.0, seed);
             Params c1 = Params::improved();
-            Params c2 = c1; c2.sparse_feature_scan = c2.sparse_label_scan = false;
+            Params c2 = c1; c2.sparse_feature_scan = false;
             if (!sameSegments(detect(sc.img, c1), detect(sc.img, c2))) {
                 std::printf("SPARSE-EXACTNESS FAIL seed=%u\n", seed);
                 ++fails;
@@ -364,9 +364,9 @@ int main(int argc, char** argv) {
         const int runs = quickRuns;
 
         struct Cfg { const char* name; Params p; };
-        Params b0 = Params::original2014();  b0.sparse_feature_scan = b0.sparse_label_scan = false;
+        Params b0 = Params::original2014();  b0.sparse_feature_scan = false;
         Params b1 = Params::original2014();  // baseline + sparse (default on)
-        Params i0 = Params::improved();  i0.sparse_feature_scan = i0.sparse_label_scan = false;
+        Params i0 = Params::improved();  i0.sparse_feature_scan = false;
         Params i1 = Params::improved();
         Cfg cfgs[] = {{"baseline  dense ", b0}, {"baseline  sparse", b1},
                       {"improved  dense ", i0}, {"improved  sparse", i1}};
@@ -394,9 +394,9 @@ int main(int argc, char** argv) {
         const int runs = quickRuns;
 
         struct Cfg { const char* name; Params p; };
-        Params b0 = Params::original2014();  b0.sparse_feature_scan = b0.sparse_label_scan = false;
+        Params b0 = Params::original2014();  b0.sparse_feature_scan = false;
         Params b1 = Params::original2014();  // baseline + sparse (default on)
-        Params i0 = Params::improved();  i0.sparse_feature_scan = i0.sparse_label_scan = false;
+        Params i0 = Params::improved();  i0.sparse_feature_scan = false;
         Params i1 = Params::improved();
         Cfg cfgs[] = {{"baseline  dense ", b0}, {"baseline  sparse", b1},
                       {"improved  dense ", i0}, {"improved  sparse", i1}};
