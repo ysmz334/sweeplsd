@@ -3,6 +3,7 @@
 #include <climits>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 #include <type_traits>
 #include <utility>
@@ -59,14 +60,44 @@ struct LabelCold {
     int start_x = 0, start_y = 0;
 };
 
+// Fixed-size label pool with a ring free-list of slot indices. The streaming
+// scan can only keep O(width) labels simultaneously live (the interior/void
+// alternating pattern bounds distinct components in a row at ~width/2), so slots
+// are recycled the moment a label dies (see the end-of-row sweep in processRow)
+// instead of growing an unbounded table. This keeps the working set in cache and
+// the memory footprint O(width) — the same bounded design as the hardware form.
 struct LabelTable {
-    std::vector<LabelHot> hot{LabelHot{}};    // index 0 = reserved "no label" sentinel
-    std::vector<LabelCold> cold{LabelCold{}};
+    std::vector<LabelHot> hot;    // index 0 = reserved "no label" sentinel
+    std::vector<LabelCold> cold;
+    std::vector<int> free_list;   // stack of available slot indices
+    int grow_events = 0;          // pool-exhaustion grows (abnormal; surfaced)
+
+    void init(int pool) {
+        hot.assign(std::size_t(pool) + 1, LabelHot{});   // index 0 = sentinel
+        cold.assign(std::size_t(pool) + 1, LabelCold{});
+        free_list.clear();
+        free_list.reserve(pool);
+        for (int i = pool; i >= 1; --i) free_list.push_back(i);  // pop returns 1,2,...
+        grow_events = 0;
+    }
     int create() {
+        if (!free_list.empty()) {
+            int id = free_list.back();
+            free_list.pop_back();
+            hot[id] = LabelHot{};    // full re-init of a recycled slot
+            cold[id] = LabelCold{};
+            return id;
+        }
+        // Pool exhausted: grow as a safety fallback so output stays exact. This
+        // is ABNORMAL (live labels should never exceed ~width/2) and is surfaced
+        // to the caller via lastPoolGrowthEvents() and a stderr warning.
+        int id = int(hot.size());
         hot.emplace_back();
         cold.emplace_back();
-        return int(hot.size()) - 1;
+        ++grow_events;
+        return id;
     }
+    void recycle(int id) { free_list.push_back(id); }
     // Union-find resolve with path compression.
     int find(int id) {
         int root = id;
@@ -145,17 +176,17 @@ struct Labeler::Impl {
 
     Impl(int w, int h, const Params& p, bool ex = false)
         : width(w), height(h), params(p), prev_row(w, 0), cur_row(w, 0), want_ex(ex) {
-        // Pre-size the per-frame label table. It never recycles, so it grows to
-        // O(#labels) via emplace_back (~13x width on dense Full-HD scenes), and
-        // the incremental reallocations — copying the ~100-byte LabelHot records
-        // and evicting the working set — cost several percent of the labelling
-        // stage. width*16 covers the dense case with no realloc while staying
-        // neutral on sparse images: reserved-but-untouched pages never enter the
-        // working set, so peak memory is unchanged (tuned for the Full-HD target;
-        // a larger frame simply takes a few reallocations as before).
-        labels.hot.reserve(std::size_t(w) * 16 + 1);
-        labels.cold.reserve(std::size_t(w) * 16 + 1);
+        // Fixed label pool sized to the ~width/2 upper bound on simultaneously
+        // live labels; slots recycle through a ring free-list (see LabelTable and
+        // the end-of-row retire sweep). The measured peak on real images is far
+        // smaller (a couple hundred), so the working set stays cache-resident and
+        // memory is O(width) instead of O(#labels). Grow beyond the pool is a
+        // safety fallback, reported as an abnormal event.
+        labels.init(std::max(64, w / 2));
+        cur_live.reserve(std::size_t(w) / 2 + 16);
+        prev_live.reserve(std::size_t(w) / 2 + 16);
     }
+    std::vector<int> cur_live, prev_live;  // slot ids with last_row == y / y-1
 
     // Improvement 1: project the two raw endpoints onto the least-squares line
     // (centroid + principal direction (dx, dy) from the moments), so the
@@ -561,6 +592,11 @@ struct Labeler::Impl {
                 fx += ox;
                 fy += oy;
             }
+            // First touch of this slot in row y (last_row still < y): it joins
+            // the live set for this row. Recorded once (a second touch already
+            // has last_row == y) so the end-of-row sweep can retire slots that
+            // stop appearing.
+            if (labels.h(center).last_row < y) cur_live.push_back(center);
             const bool strong = hysteresis && power[x] >= strong_th;
             if (weighted)
                 accumulate<true>(labels.h(center), x, y, double(power[x]), fx, fy, strong);
@@ -594,6 +630,19 @@ struct Labeler::Impl {
             pixel(x, std::false_type{});
         }
         if (width > 1 && cur[width - 1] == Feature::Interior) pixel(width - 1, std::true_type{});
+
+        // Retire dead slots: a label that was live entering this row (prev_live)
+        // but was not touched during it (last_row < y) can never be extended or
+        // emit again, so its slot returns to the free-list. Output-invariant — a
+        // segment is only emitted on a second endpoint contact or a merge, both
+        // of which need a live pixel. Safe against the union-find aliasing: every
+        // id stored in cur_row is accumulate'd (last_row == y), so no live find()
+        // chain passes through a slot with last_row < y (proof in the design
+        // notes); once row y-1 scrolls out nothing references such a slot.
+        for (int id : prev_live)
+            if (labels.h(id).last_row < y) labels.recycle(id);
+        prev_live.swap(cur_live);
+        cur_live.clear();
         prev_row.swap(cur_row);
     }
 };
@@ -606,13 +655,32 @@ void Labeler::processRow(int y, const Feature* above, const Feature* cur, const 
                          const std::int8_t* delta) {
     impl_->processRow(y, above, cur, below, power, dir, delta);
 }
+// Number of label-pool grow events during the most recent detection on this
+// thread (0 = normal; > 0 means the input exceeded the ~width/2 simultaneous
+// label budget and the pool had to grow — output stays exact, but it is an
+// abnormal condition worth noticing, analogous to a hardware overflow).
+namespace {
+thread_local int g_last_pool_growths = 0;
+void reportPoolGrowths(int n) {
+    g_last_pool_growths = n;
+    if (n > 0)
+        std::fprintf(stderr,
+                     "sweeplsd: label pool exhausted, grew %d time(s) — input "
+                     "exceeds width/2 simultaneous labels\n",
+                     n);
+}
+}  // namespace
+int lastPoolGrowthEvents() { return g_last_pool_growths; }
+
 std::vector<LineSegment> Labeler::takeSegments() {
     for (const auto& a : impl_->active) impl_->flushActive(a);  // flush remaining linked segments
     impl_->active.clear();
+    reportPoolGrowths(impl_->labels.grow_events);
     return std::move(impl_->segments);
 }
 std::vector<LineSegmentEx> Labeler::takeSegmentsEx() {
     // Extended collection runs with linking disabled, so `active` is empty here.
+    reportPoolGrowths(impl_->labels.grow_events);
     return std::move(impl_->segments_ex);
 }
 

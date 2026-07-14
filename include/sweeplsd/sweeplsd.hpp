@@ -197,4 +197,13 @@ std::vector<LineSegment> detectOnePass(const GrayImage& src, const Params& param
 
 std::vector<StageTiming> profileStages(const GrayImage& src, const Params& params, int runs);
 
+// Number of times the internal label pool had to grow during the most recent
+// detect()/detectEx()/detectOnePass() call ON THE CALLING THREAD. Normally 0:
+// the pool is sized to the ~width/2 upper bound on simultaneously live labels.
+// A non-zero value means the input exceeded that budget (the pool grew so the
+// output is still exact, and a warning was written to stderr) — an abnormal
+// condition, analogous to a hardware label-buffer overflow, worth flagging in
+// evaluation. Reset at the start of each detection.
+int lastPoolGrowthEvents();
+
 }  // namespace sweeplsd
