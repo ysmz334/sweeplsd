@@ -73,6 +73,19 @@ struct LabelCold {
 // but valid condition, reported via lastPoolGrowthEvents() + a stderr warning).
 // Needing more than width/2 is impossible for correct input, so it is a hard
 // error rather than a silent grow.
+//
+// The overflow throw lives in a cold, non-inlined, [[noreturn]] helper. An
+// inline `throw` inside create() (which is inlined into the per-pixel labelling
+// hot loop) injects exception landing pads that poison that loop's codegen and
+// measurably slow labelling — on the Full-HD corpus, the labeller stage ran
+// ~47 % slower with the throw inline than out-of-line, despite the throw never
+// being taken. Keeping it out-of-line preserves the exact hard-error behaviour
+// with a clean hot path.
+[[noreturn]] __attribute__((noinline, cold)) inline void poolOverflowError() {
+    throw std::runtime_error(
+        "sweeplsd: simultaneously-live labels exceeded the width/2 bound "
+        "— impossible for correct input (label management bug?)");
+}
 struct LabelTable {
     std::vector<LabelHot> hot;    // index 0 = reserved "no label" sentinel
     std::vector<LabelCold> cold;
@@ -100,11 +113,9 @@ struct LabelTable {
         // Pool exhausted. Grow up to the width/2 bound as a safety fallback so the
         // output stays exact (surfaced via lastPoolGrowthEvents() + stderr). Past
         // width/2 the theoretical bound is violated, which cannot happen for a
-        // correct input — raise a hard error instead of masking a bug.
-        if (int(hot.size()) - 1 >= hard_cap)
-            throw std::runtime_error(
-                "sweeplsd: simultaneously-live labels exceeded the width/2 bound "
-                "— impossible for correct input (label management bug?)");
+        // correct input — raise a hard error instead of masking a bug (thrown
+        // from the cold out-of-line helper above; see the note there).
+        if (int(hot.size()) - 1 >= hard_cap) poolOverflowError();
         int id = int(hot.size());
         hot.emplace_back();
         cold.emplace_back();

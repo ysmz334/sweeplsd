@@ -1,5 +1,19 @@
 # Changelog
 
+## v3.0.1 (2026-07-15)
+
+- **Labelling performance fix (output bit-identical).** The pool-overflow
+  `throw` added in v3.0.0 lived inline in `LabelTable::create()`, which is
+  inlined into the per-pixel labelling hot loop. The exception landing pads it
+  injected poisoned that loop's codegen, so the labeller ran ~47 % slower than
+  necessary even though the throw is never taken on valid input. The throw is
+  now in a cold, non-inlined `[[noreturn]]` helper (`poolOverflowError`), which
+  restores the hot path. On the 150-image Full-HD corpus this cuts the
+  streaming detector from ~17.7 ms to ~13.8 ms per frame (one-pass, i7-8700K,
+  −22 %); output is bit-identical to v3.0.0 on all 150 images, and the
+  grow-and-report and hard-error behaviours are unchanged. The pool still
+  starts at width/4 and hard-errors above width/2.
+
 ## v3.0.0 (2026-07-15)
 
 - **BREAKING: removed `Params::sparse_label_scan`.** The labeling row scan's
