@@ -12,7 +12,8 @@
 // Shimizu, Waseda University); this library is its from-scratch reimplementation
 // plus measured refinements. `Params{}` is SweepLSD as published (every
 // refinement enabled — see each flag below); `Params::original2014()`
-// reproduces the 2014 thesis implementation's behaviour.
+// restores the 2014 thesis implementation's pipeline (every refinement off;
+// the judgment thresholds keep the library defaults, see original2014()).
 //
 // Thesis section references (§...) throughout the sources point at that thesis.
 
@@ -96,7 +97,7 @@ struct Params {
     // ---- measured refinements (ON by default; the shipped configuration) ---
     // Params{} IS SweepLSD as published: every refinement below is enabled.
     // Each can be disabled individually, and Params::original2014() disables
-    // them all, reproducing the 2014 thesis implementation's behaviour.
+    // them all, restoring the 2014 thesis implementation's pipeline.
     //
     // Two further ideas were evaluated and DROPPED after testing (see the
     // accuracy/speed report's "improvement validity" section): a 4-direction
@@ -165,9 +166,12 @@ struct Params {
     // keeps meaning the same thing.
     static Params improved() { return Params{}; }
 
-    // The 2014 thesis implementation's behaviour: every refinement above
-    // switched off. Retained for reproduction and regression against the
-    // original; not recommended for applications.
+    // The 2014 thesis implementation's pipeline: every refinement above
+    // switched off. The judgment thresholds keep the library defaults
+    // (pixel_num_th = 15, aspect_th = 0.05) rather than the thesis
+    // implementation's (16, 1/128) — set them explicitly if you need that
+    // exact operating point. Retained for reproduction and regression
+    // against the original; not recommended for applications.
     static Params original2014() {
         Params p;
         p.nms_strict_tiebreak = false;

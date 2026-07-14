@@ -91,8 +91,9 @@ Two drivers share the same kernels and are tested to produce identical output:
 the fastest configuration). `Params{}` is SweepLSD as published: the measured
 refinements (sub-pixel NMS, streaming hysteresis, curve rejection, half-pixel
 lattice correction, …) are all enabled, each individually documented,
-benchmarked, and disableable; `Params::original2014()` reproduces the 2014
-thesis implementation's behaviour. (`Params::improved()` remains as an alias
+benchmarked, and disableable; `Params::original2014()` restores the 2014
+thesis implementation's pipeline (the judgment thresholds keep the library
+defaults). (`Params::improved()` remains as an alias
 of the default for code written against earlier releases.)
 
 The full explanation with per-stage figures is in [the docs](https://ysmz334.github.io/sweeplsd/).
