@@ -3,6 +3,12 @@ build_*/
 *.exe
 *.obj
 *.o
+*.pdb
+
+# Downloaded third-party debug-info converter (cv2pdb, GPL) used by
+# tools/build_profile.bat to make the MinGW binary VS-profileable. Fetched
+# locally, not vendored — see docs/profiling.md for how to obtain it.
+tools/cv2pdb/
 .vs/
 .vscode/
 .cache/

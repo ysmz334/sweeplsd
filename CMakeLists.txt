@@ -43,6 +43,14 @@ else()
 endif()
 message(STATUS "SweepLSD SIMD target: ${SWEEPLSD_SIMD} (processor: ${CMAKE_SYSTEM_PROCESSOR})")
 
+# On MinGW, statically link the GCC/libstdc++/winpthread runtime so the built
+# executables run standalone — double-clicked or from a plain shell — without
+# needing mingw64\bin (libstdc++-6.dll, libgcc_s_*.dll, libwinpthread-1.dll) on
+# PATH. Behaviour and performance are unchanged.
+if(MINGW)
+  add_link_options(-static -static-libgcc -static-libstdc++)
+endif()
+
 # Core SweepLSD library: the pipeline stages plus the two drivers (multi-pass
 # and streaming one-pass). No third-party dependency — C++ standard library only.
 add_library(sweeplsd
@@ -87,6 +95,13 @@ target_link_libraries(sweeplsd_cli PRIVATE sweeplsd sweeplsd_io)
 
 add_executable(sweeplsd_profile apps/sweeplsd_profile.cpp)
 target_link_libraries(sweeplsd_profile PRIVATE sweeplsd sweeplsd_io)
+
+# Per-stage hotspot profiler for the streaming one-pass driver (mirrors
+# sweeplsd_onepass.cpp with rdtsc counters); needs the internal kernels/stage
+# headers in src/.
+add_executable(sweeplsd_hotspots apps/sweeplsd_hotspots.cpp)
+target_include_directories(sweeplsd_hotspots PRIVATE src)
+target_link_libraries(sweeplsd_hotspots PRIVATE sweeplsd sweeplsd_io)
 
 # Stage-dump tool (regenerates the figures used by docs/); needs the internal
 # stage headers in src/.
