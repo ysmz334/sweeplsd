@@ -597,7 +597,7 @@ int main(int argc, char** argv) {
                  "<li><b>操作点の掃引</b>：単一しきい値の比較は不公平なので、各手法の主感度ノブを振って "
                  "<b>PR フロンティア</b>を描く（SweepLSD=<code>pixel_num_th</code>, LSD=<code>eps</code>(NFA), "
                  "EDLines=<code>min_length</code>）。要約は <b>F-max</b> と <b>AP</b>（PR曲線下面積）。</li>"
-                 "<li><b>マッチング</b>：角度差&le;10&deg; かつ横方向距離&le;3px かつ射影が重なる検出を、"
+                 "<li><b>マッチング</b>：角度差&le;10&deg; かつ横方向距離&le;2px かつ射影の重なりが検出長の半分以上の検出を、"
                  "重なり長で1対1貪欲対応。TP=対応した検出, FP=残り, FN=未対応のGT。</li>"
                  "<li><b>幾何精度</b>：対応した対について横方向誤差・角度誤差（分断に頑健）。</li>"
                  "<li><b>速度/ISA</b> は <code>sweeplsd_compare</code> 側で AVX2 整合済み。本ツールは品質に集中。</li>"

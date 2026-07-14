@@ -28,9 +28,12 @@ source (Apache-2.0), both built with MSVC <code>/O2 /arch:AVX2</code>.</p>
 <tr><td>EDLines (ED_Lib)</td><td>43.0 ms</td><td>2.5×</td><td>O(pixels)</td></tr>
 <tr><td>LSD</td><td>247 ms</td><td>14×</td><td>O(pixels)</td></tr>
 </tbody></table>
-<p>Typical segment counts on a rich urban photo (IMGP0942): SweepLSD 2938, ELSED 3064,
-LSD 2938, EDLines 2780 — the speed does not come from detecting less (corpus-wide,
-SweepLSD detects ~27% <i>more</i> segments than ELSED at defaults).</p>
+<p>Corpus-mean segment counts at author defaults: SweepLSD 1483, ELSED 1168, LSD 1712,
+EDLines 1952 (on a rich urban photo, IMGP0942: 2938 / 3064 / 4763 / 5206). The speed does
+not come from detecting less than the next-fastest method — SweepLSD detects ~27%
+<i>more</i> segments than ELSED; LSD and EDLines detect more at their defaults, consistent
+with their recovery of the soft, low-contrast structure that SweepLSD's contrast-gated
+edge model misses (see the <a href="evaluation.html">evaluation page</a>).</p>
 
 <h2>2. Across image scales</h2>
 <p>ELSED's defaults are tuned for 640×480 inputs, where its published speed leadership was
