@@ -199,11 +199,12 @@ std::vector<StageTiming> profileStages(const GrayImage& src, const Params& param
 
 // Number of times the internal label pool had to grow during the most recent
 // detect()/detectEx()/detectOnePass() call ON THE CALLING THREAD. Normally 0:
-// the pool is sized to the ~width/2 upper bound on simultaneously live labels.
-// A non-zero value means the input exceeded that budget (the pool grew so the
-// output is still exact, and a warning was written to stderr) — an abnormal
-// condition, analogous to a hardware label-buffer overflow, worth flagging in
-// evaluation. Reset at the start of each detection.
+// the pool starts at the practical width/4 size and real images peak far below
+// it. A non-zero value means the input exceeded width/4 and the pool grew toward
+// the theoretical width/2 bound (output stays exact, and a warning was written
+// to stderr) — an abnormal condition worth flagging in evaluation. Needing more
+// than width/2 is impossible for a correct input, so it throws std::runtime_error
+// rather than being counted here. Reset at the start of each detection.
 int lastPoolGrowthEvents();
 
 }  // namespace sweeplsd

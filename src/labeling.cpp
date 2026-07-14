@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <stdexcept>
 #include <type_traits>
 #include <utility>
 
@@ -62,17 +63,25 @@ struct LabelCold {
 
 // Fixed-size label pool with a ring free-list of slot indices. The streaming
 // scan can only keep O(width) labels simultaneously live (the interior/void
-// alternating pattern bounds distinct components in a row at ~width/2), so slots
+// alternating pattern bounds distinct components in a row at ⌈width/2⌉), so slots
 // are recycled the moment a label dies (see the end-of-row sweep in processRow)
 // instead of growing an unbounded table. This keeps the working set in cache and
 // the memory footprint O(width) — the same bounded design as the hardware form.
+//
+// The pool starts at the *practical* width/4 (real images peak far below it); if
+// an input needs more it grows up to the theoretical width/2 bound (an abnormal
+// but valid condition, reported via lastPoolGrowthEvents() + a stderr warning).
+// Needing more than width/2 is impossible for correct input, so it is a hard
+// error rather than a silent grow.
 struct LabelTable {
     std::vector<LabelHot> hot;    // index 0 = reserved "no label" sentinel
     std::vector<LabelCold> cold;
     std::vector<int> free_list;   // stack of available slot indices
-    int grow_events = 0;          // pool-exhaustion grows (abnormal; surfaced)
+    int hard_cap = 0;             // ⌈width/2⌉: exceeding it throws
+    int grow_events = 0;          // grows past the width/4 pool (abnormal; surfaced)
 
-    void init(int pool) {
+    void init(int pool, int cap) {
+        hard_cap = cap;
         hot.assign(std::size_t(pool) + 1, LabelHot{});   // index 0 = sentinel
         cold.assign(std::size_t(pool) + 1, LabelCold{});
         free_list.clear();
@@ -88,9 +97,14 @@ struct LabelTable {
             cold[id] = LabelCold{};
             return id;
         }
-        // Pool exhausted: grow as a safety fallback so output stays exact. This
-        // is ABNORMAL (live labels should never exceed ~width/2) and is surfaced
-        // to the caller via lastPoolGrowthEvents() and a stderr warning.
+        // Pool exhausted. Grow up to the width/2 bound as a safety fallback so the
+        // output stays exact (surfaced via lastPoolGrowthEvents() + stderr). Past
+        // width/2 the theoretical bound is violated, which cannot happen for a
+        // correct input — raise a hard error instead of masking a bug.
+        if (int(hot.size()) - 1 >= hard_cap)
+            throw std::runtime_error(
+                "sweeplsd: simultaneously-live labels exceeded the width/2 bound "
+                "— impossible for correct input (label management bug?)");
         int id = int(hot.size());
         hot.emplace_back();
         cold.emplace_back();
@@ -176,13 +190,12 @@ struct Labeler::Impl {
 
     Impl(int w, int h, const Params& p, bool ex = false)
         : width(w), height(h), params(p), prev_row(w, 0), cur_row(w, 0), want_ex(ex) {
-        // Fixed label pool sized to the ~width/2 upper bound on simultaneously
-        // live labels; slots recycle through a ring free-list (see LabelTable and
-        // the end-of-row retire sweep). The measured peak on real images is far
-        // smaller (a couple hundred), so the working set stays cache-resident and
-        // memory is O(width) instead of O(#labels). Grow beyond the pool is a
-        // safety fallback, reported as an abnormal event.
-        labels.init(std::max(64, w / 2));
+        // Label pool: start at the practical width/4 (real images peak far below
+        // it), allow growth up to the theoretical width/2 bound (reported as an
+        // abnormal event), and hard-error above width/2. Slots recycle through a
+        // ring free-list (see LabelTable and the end-of-row retire sweep), so the
+        // working set stays cache-resident and memory is O(width).
+        labels.init(std::max(64, w / 4), std::max(128, w / 2));
         cur_live.reserve(std::size_t(w) / 2 + 16);
         prev_live.reserve(std::size_t(w) / 2 + 16);
     }
@@ -656,17 +669,18 @@ void Labeler::processRow(int y, const Feature* above, const Feature* cur, const 
     impl_->processRow(y, above, cur, below, power, dir, delta);
 }
 // Number of label-pool grow events during the most recent detection on this
-// thread (0 = normal; > 0 means the input exceeded the ~width/2 simultaneous
-// label budget and the pool had to grow — output stays exact, but it is an
-// abnormal condition worth noticing, analogous to a hardware overflow).
+// thread (0 = normal; > 0 means the input exceeded the practical width/4 label
+// budget and the pool had to grow toward the width/2 bound — output stays exact,
+// but it is an abnormal condition worth noticing. Exceeding width/2 itself is a
+// hard error thrown from create(), not counted here).
 namespace {
 thread_local int g_last_pool_growths = 0;
 void reportPoolGrowths(int n) {
     g_last_pool_growths = n;
     if (n > 0)
         std::fprintf(stderr,
-                     "sweeplsd: label pool exhausted, grew %d time(s) — input "
-                     "exceeds width/2 simultaneous labels\n",
+                     "sweeplsd: label pool grew %d time(s) past the practical "
+                     "width/4 budget (still within the width/2 bound)\n",
                      n);
 }
 }  // namespace
