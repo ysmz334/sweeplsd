@@ -25,6 +25,10 @@
 #include <string>
 #include <vector>
 
+#if !(defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86))
+#error "sweeplsd_hotspots uses rdtsc and is x86-only; the CMake build skips this target on non-x86 (e.g. ARM64)."
+#endif
+
 #if defined(_MSC_VER)
 #include <intrin.h>
 #else

@@ -98,10 +98,13 @@ target_link_libraries(sweeplsd_profile PRIVATE sweeplsd sweeplsd_io)
 
 # Per-stage hotspot profiler for the streaming one-pass driver (mirrors
 # sweeplsd_onepass.cpp with rdtsc counters); needs the internal kernels/stage
-# headers in src/.
-add_executable(sweeplsd_hotspots apps/sweeplsd_hotspots.cpp)
-target_include_directories(sweeplsd_hotspots PRIVATE src)
-target_link_libraries(sweeplsd_hotspots PRIVATE sweeplsd sweeplsd_io)
+# headers in src/. rdtsc / <x86intrin.h> are x86-only, so this investigation
+# tool is built on x86 targets only (skipped on ARM64 etc.).
+if(SWEEPLSD_ARCH_X86)
+  add_executable(sweeplsd_hotspots apps/sweeplsd_hotspots.cpp)
+  target_include_directories(sweeplsd_hotspots PRIVATE src)
+  target_link_libraries(sweeplsd_hotspots PRIVATE sweeplsd sweeplsd_io)
+endif()
 
 # Stage-dump tool (regenerates the figures used by docs/); needs the internal
 # stage headers in src/.

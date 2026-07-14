@@ -80,8 +80,15 @@ struct LabelCold {
 // measurably slow labelling — on the Full-HD corpus, the labeller stage ran
 // ~47 % slower with the throw inline than out-of-line, despite the throw never
 // being taken. Keeping it out-of-line preserves the exact hard-error behaviour
-// with a clean hot path.
-[[noreturn]] __attribute__((noinline, cold)) inline void poolOverflowError() {
+// with a clean hot path. `noinline` is the load-bearing part (mirrors
+// SWEEPLSD_NOINLINE in kernels.hpp, which this TU does not include); MSVC spells
+// it `__declspec(noinline)` and has no `cold`.
+#if defined(_MSC_VER)
+#define SWEEPLSD_COLD_NOINLINE __declspec(noinline)
+#else
+#define SWEEPLSD_COLD_NOINLINE __attribute__((noinline, cold))
+#endif
+[[noreturn]] SWEEPLSD_COLD_NOINLINE inline void poolOverflowError() {
     throw std::runtime_error(
         "sweeplsd: simultaneously-live labels exceeded the width/2 bound "
         "— impossible for correct input (label management bug?)");
