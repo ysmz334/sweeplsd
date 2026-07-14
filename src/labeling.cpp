@@ -144,7 +144,18 @@ struct Labeler::Impl {
     std::vector<Active> active;
 
     Impl(int w, int h, const Params& p, bool ex = false)
-        : width(w), height(h), params(p), prev_row(w, 0), cur_row(w, 0), want_ex(ex) {}
+        : width(w), height(h), params(p), prev_row(w, 0), cur_row(w, 0), want_ex(ex) {
+        // Pre-size the per-frame label table. It never recycles, so it grows to
+        // O(#labels) via emplace_back (~13x width on dense Full-HD scenes), and
+        // the incremental reallocations — copying the ~100-byte LabelHot records
+        // and evicting the working set — cost several percent of the labelling
+        // stage. width*16 covers the dense case with no realloc while staying
+        // neutral on sparse images: reserved-but-untouched pages never enter the
+        // working set, so peak memory is unchanged (tuned for the Full-HD target;
+        // a larger frame simply takes a few reallocations as before).
+        labels.hot.reserve(std::size_t(w) * 16 + 1);
+        labels.cold.reserve(std::size_t(w) * 16 + 1);
+    }
 
     // Improvement 1: project the two raw endpoints onto the least-squares line
     // (centroid + principal direction (dx, dy) from the moments), so the
@@ -394,15 +405,31 @@ struct Labeler::Impl {
         emit(s, L.pix_num < params.pixel_num_th, &e);
     }
 
+    // `Weighted` is a compile-time specialization of the moment update. The
+    // default (weight_by_gradient off) uses w == 1, so the unweighted path drops
+    // the six multiplies by w — bit-identical, since 1.0*v == v exactly in IEEE
+    // double. The weighted path is unchanged. `weighted` is loop-invariant, so
+    // the per-pixel dispatch below is a perfectly predicted branch.
+    template <bool Weighted>
     void accumulate(LabelHot& L, int x, int y, double w, double fx, double fy, bool strong) {
         L.pix_num += 1;
         L.strong_cnt += strong;
-        L.w_sum += w;
-        L.x_sum += w * fx;
-        L.x_sq_sum += w * fx * fx;
-        L.y_sum += w * fy;
-        L.y_sq_sum += w * fy * fy;
-        L.xy_sum += w * fx * fy;
+        if constexpr (Weighted) {
+            L.w_sum += w;
+            L.x_sum += w * fx;
+            L.x_sq_sum += w * fx * fx;
+            L.y_sum += w * fy;
+            L.y_sq_sum += w * fy * fy;
+            L.xy_sum += w * fx * fy;
+        } else {
+            (void)w;
+            L.w_sum += 1.0;
+            L.x_sum += fx;
+            L.x_sq_sum += fx * fx;
+            L.y_sum += fy;
+            L.y_sq_sum += fy * fy;
+            L.xy_sum += fx * fy;
+        }
         if (x < L.min_x) { L.min_x = x; L.min_x_y = y; }
         if (x > L.max_x) { L.max_x = x; L.max_x_y = y; }
         if (y < L.min_y) { L.min_y = y; L.min_y_x = x; }
@@ -535,8 +562,11 @@ struct Labeler::Impl {
                 fx += ox;
                 fy += oy;
             }
-            accumulate(labels.h(center), x, y, weighted ? double(power[x]) : 1.0, fx, fy,
-                       hysteresis && power[x] >= strong_th);
+            const bool strong = hysteresis && power[x] >= strong_th;
+            if (weighted)
+                accumulate<true>(labels.h(center), x, y, double(power[x]), fx, fy, strong);
+            else
+                accumulate<false>(labels.h(center), x, y, 1.0, fx, fy, strong);
             cur_row[x] = center;
 
             // Endpoint contact: Feature::Endpoint is the only value with bit 1
