@@ -305,17 +305,26 @@ inline bool endpointCore(L e) {
 
     U count = U(i + j + k + l + m + n + o + p + q + r + s + t + u + v + w + xx);
 
-    // Ring "thermometer" masks (i contributes 0): XOR of the present pixels'
-    // masks; its popcount is the shorter arc distance between two survivors.
-    // (0 - flag) is 0x00 or 0xff in uint8, so each term is mask-or-zero.
-    U xm = U((U(0) - j) & 0x01) ^ U((U(0) - k) & 0x03) ^ U((U(0) - l) & 0x07) ^
-           U((U(0) - m) & 0x0f) ^ U((U(0) - n) & 0x1f) ^ U((U(0) - o) & 0x3f) ^
-           U((U(0) - p) & 0x7f) ^ U((U(0) - q) & 0xff) ^ U((U(0) - r) & 0xfe) ^
-           U((U(0) - s) & 0xfc) ^ U((U(0) - t) & 0xf8) ^ U((U(0) - u) & 0xf0) ^
-           U((U(0) - v) & 0xe0) ^ U((U(0) - w) & 0xc0) ^ U((U(0) - xx) & 0x80);
-    U pc = xm - ((xm >> 1) & 0x55);            // SWAR popcount of the 8 bits
-    pc = (pc & 0x33) + ((pc >> 2) & 0x33);
-    pc = U(pc + (pc >> 4)) & 0x0f;
+    // "Straight line passes through" = exactly two ring survivors that are far
+    // apart. The thesis test is popcount(thermometer-XOR) > 6: the two survivors'
+    // thermometer masks XOR to a run of set bits whose length is their arc
+    // distance. Bit b of that XOR is exactly the parity of the 8-pixel ring
+    // window f[b+1..b+8] (f = i,j,k,...,xx around the ring; i is the window
+    // origin, never inside any window — "i contributes 0"). Its popcount — all we
+    // need — is therefore just the number of odd-parity windows, so we skip
+    // building the byte and the SWAR popcount entirely: compute the 8 window
+    // parities incrementally (par_b = par_{b-1} ^ f_b ^ f_{b+8}) and sum them.
+    // ~half the ops, and bit-identical to the thermometer form (verified
+    // exhaustively over all 2^16 ring configurations).
+    U par0 = U(j ^ k ^ l ^ m ^ n ^ o ^ p ^ q);
+    U par1 = U(par0 ^ j ^ r);
+    U par2 = U(par1 ^ k ^ s);
+    U par3 = U(par2 ^ l ^ t);
+    U par4 = U(par3 ^ m ^ u);
+    U par5 = U(par4 ^ n ^ v);
+    U par6 = U(par5 ^ o ^ w);
+    U par7 = U(par6 ^ p ^ xx);
+    U pc = U(par0 + par1 + par2 + par3 + par4 + par5 + par6 + par7);  // = popcount(xm)
 
     U straight = U(count == 2) & U(pc > 6);
     return straight == 0;
