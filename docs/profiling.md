@@ -71,7 +71,7 @@ time is inside the pipeline. Then, **with MinGW on PATH** (the profiler shells
 out to `addr2line`):
 
 ```powershell
-$env:Path = "C:\Program Files\mingw-w64\...\mingw64\bin;" + $env:Path
+$env:Path = "C:\Program Files\mingw-w64\x86_64-8.1.0-posix-sjlj-rt_v6-rev0\mingw64\bin;" + $env:Path
 .\build_profile\line_profiler.exe .\build_profile\profile_driver.exe `
     E:\dataset\WasedaDataset\IMGP0942.png --iters 400
 ```
