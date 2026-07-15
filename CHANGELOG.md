@@ -1,5 +1,21 @@
 # Changelog
 
+## v3.0.2 (2026-07-15)
+
+- **Build portability fixes (no behaviour change).** v3.0.1's cold-throw helper
+  used `__attribute__((noinline, cold))`, which MSVC cannot parse, so the core
+  library failed to build under Visual C++. The `noinline` attribute is now
+  emitted through a portable `SWEEPLSD_COLD_NOINLINE` macro (`__declspec(noinline)`
+  on MSVC, `__attribute__((noinline, cold))` elsewhere); the `cold` hint is a
+  GCC/Clang-only bonus while the load-bearing `noinline` works everywhere.
+- **`sweeplsd_hotspots` restricted to x86.** The one-pass hotspot profiler uses
+  `rdtsc` / `<x86intrin.h>` and never built on ARM64 (e.g. Apple-silicon
+  `macos-latest`). Its CMake target is now gated on `SWEEPLSD_ARCH_X86` and the
+  source carries a matching `#error` guard, so non-x86 builds simply skip this
+  diagnostic tool instead of failing. The shipped library, CLI, and tests are
+  unaffected. CI is green on linux-gcc, linux-clang, windows-msvc, and
+  macos-clang (ARM64).
+
 ## v3.0.1 (2026-07-15)
 
 - **Labelling performance fix (output bit-identical).** The pool-overflow
