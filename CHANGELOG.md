@@ -1,5 +1,44 @@
 # Changelog
 
+## v3.0.3 (2026-07-17)
+
+- **Kernel performance: Full-HD one-pass ~13.5 → ~12.0 ms (−11 %), output
+  bit-identical.** Three independent rewrites of the shared per-pixel kernels in
+  `src/kernels.hpp`; no algorithm, numerics, parameter, or API change. Measured
+  on the 150-image Full-HD corpus (median of 5 runs per image, i7-8700K, MinGW
+  g++ 8.1, AVX2) with the old and new builds interleaved so both see the same
+  thermal conditions. The multi-pass detector drops ~17.4 → ~16.0 ms, and
+  `Params::original2014()` one-pass ~10.9 → ~9.8 ms. Segment counts are
+  unchanged, and the HLS core stays bit-exact against the software golden model
+  (the kernels are shared with it).
+- **Edge NMS: select the competitor pair with a uint16 blend, not int
+  multiplies.** `edgeRow`'s interior picked its two NMS competitors with
+  `isV*pc[..] + isH*pa[..]`, which promoted every value to `int`, halving the
+  loop to 8 AVX2 lanes and adding four `vpmulld` plus word→dword widening per
+  group. Selecting the pair with a `0x0000`/`0xffff` direction mask keeps the
+  whole loop in `uint16` (16 lanes, multiply-free): ~2.9× on the isolated loop,
+  **edge stage −37 %**. This is safe because every power is < 2^15 (the gaussian
+  `>>10` bounds g ≤ 16320, so `power = (|dx|+|dy|+1)/2 ≤ 32640`), so no `uint16`
+  add or compare can overflow — verified over 3M randomized pixels across mixed
+  ranges, thresholds, and both directions.
+- **Endpoint: compute the straight-line test from window parities, not a
+  thermometer byte.** `endpointCore` assembled a 15-term thermometer XOR (`xm`,
+  ~44 ops) only to test `popcount(xm) > 6`. Each bit of `xm` is exactly the
+  parity of an 8-pixel ring window, so that popcount is just the number of
+  odd-parity windows: the eight parities are now computed incrementally
+  (`par_b = par_{b-1} ^ f_b ^ f_{b+8}`) and summed, dropping both the byte
+  assembly and the SWAR popcount (~54 → ~28 ops). **Endpoint stage −17 %.**
+  Verified exhaustively over all 2^16 ring configurations. The kernel stays
+  branch-free, which is load-bearing: it is what lets `featureRowInterior`
+  auto-vectorize.
+- **Sub-pixel NMS: index neighbours directly, peel the border columns.**
+  `nmsSubpixelRow` ran every surviving edge pixel's three power samples through
+  a bounds-checked accessor. Only the two border columns can have an NMS
+  neighbour outside the row, so those are now peeled into the checked path and
+  the interior scan indexes `pc`/`pa`/`pb` directly. **Sub-pixel stage −9 %**
+  (TSC, 3×30-run A/B), holding across edge densities from 6 % to 20 %.
+  Behaviour is unchanged for any `edge_border_margin`, including 0.
+
 ## v3.0.2 (2026-07-15)
 
 - **Build portability fixes (no behaviour change).** v3.0.1's cold-throw helper
