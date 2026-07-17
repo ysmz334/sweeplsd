@@ -9,6 +9,7 @@
 #include <type_traits>
 #include <utility>
 
+#include "kernels.hpp"  // ctz64, for the row scan's word skip
 #include "stages.hpp"
 
 // Stages 3 & 4 — connected-component labelling and line judgment
@@ -649,14 +650,45 @@ struct Labeler::Impl {
         // Deterministic single left-to-right sweep. The two border columns
         // (x==0, width-1) take the clamped Checked=true body; the interior
         // [1, width-1) is always in range, so its hot loop needs no per-pixel
-        // border test. No zero-word skip: unlike the endpoint stage (which runs
-        // the full 5x5 kernel on every pixel, so skipping blank runs saves real
-        // work), the labeling body only fires on Interior pixels and the plain
-        // `!= Interior` scan is already cheap — the skip left mean time
-        // unchanged while adding content-dependent jitter, so it is omitted.
+        // border test.
+        //
+        // The interior scan skips a word at a time. Only Interior needs the
+        // labelling body, and Interior (1) is the ONLY Feature whose bit 0 is
+        // set (None 0, Endpoint 2), so `wd & kBit0` marks exactly the pixels to
+        // visit, one bit per byte: ctz jumps straight to the next one and
+        // `m &= m - 1` consumes it (lowest byte first = ascending x on the
+        // little-endian targets, as in kernels.hpp's sparse edge scan).
+        //
+        // Masking bit 0 rather than testing `wd == 0` (an earlier attempt,
+        // dropped as mean-neutral) is what makes this pay, for two reasons:
+        //   * it also skips endpoint-only words, which need no labelling at
+        //     all. Endpoints are not rare and are not tied to the Interior
+        //     count -- across the corpus Interior runs 2.5-6% of pixels while
+        //     Endpoint runs 0.4-8.5%, i.e. it can outnumber Interior -- so the
+        //     all-None test skips only 54-88% of words where this skips 73-89%,
+        //     and it is weakest exactly where endpoints are densest.
+        //   * on a word that does hold an Interior, ctz jumps to it; `wd == 0`
+        //     fell back to testing all 8 bytes. This is what keeps the win on
+        //     frames whose endpoints are sparse and where the all-None test
+        //     would already have skipped.
+        // Measured: labelling stage -14% (720p) to -26% (FullHD), -74% on a
+        // blank frame; -5% end-to-end over the 150-image protocol. Output is
+        // bit-identical (endpoints match to the last mantissa bit).
+        static_assert(int(Feature::None) == 0 && int(Feature::Interior) == 1 &&
+                          int(Feature::Endpoint) == 2,
+                      "the word skip below reads bit 0 of each byte as 'is Interior', which holds "
+                      "only for this encoding: Interior must stay the sole odd Feature value");
+        constexpr std::uint64_t kBit0 = 0x0101010101010101ULL;
         if (cur[0] == Feature::Interior) pixel(0, std::true_type{});
         const int interior_end = width - 1;  // exclusive: last interior col is width-2
-        for (int x = 1; x < interior_end; ++x) {
+        int x = 1;
+        for (; x + 8 <= interior_end; x += 8) {  // reads cur[x..x+7], all interior columns
+            std::uint64_t wd;
+            std::memcpy(&wd, cur + x, 8);
+            for (std::uint64_t m = wd & kBit0; m; m &= m - 1)
+                pixel(x + (kernels::ctz64(m) >> 3), std::false_type{});
+        }
+        for (; x < interior_end; ++x) {  // tail: fewer than 8 columns left
             if (cur[x] != Feature::Interior) continue;
             pixel(x, std::false_type{});
         }

@@ -1,5 +1,39 @@
 # Changelog
 
+## v3.0.4 (2026-07-17)
+
+- **Labelling performance: Full-HD one-pass ~12.2 → ~11.5 ms (−5 %), output
+  bit-identical.** The Stage-3 row scan in `src/labeling.cpp` now advances a
+  word at a time instead of testing every pixel. No algorithm, numerics,
+  parameter, or API change. Measured on the 150-image Full-HD corpus (median of
+  5 runs per image, i7-8700K, MinGW g++ 8.1, AVX2) with the old and new builds
+  interleaved; the paper's `time_methods` harness lands the new build at
+  11.4 ms median. Per stage the labeller drops **−14 % (720p) to −26 %
+  (Full-HD)**, and −74 % on a blank frame. Verified bit-identical over 13 images
+  / 11 468 segments with both detectors, comparing endpoints as exact hex
+  floats; the HLS core stays bit-exact against the software golden model.
+- **Why the scan, and why this skip when the earlier one was dropped.** A
+  line-level profile put the row scan at **47 % of the labeller** — more than
+  the whole per-pixel body (35 %) — and a blank frame independently confirmed
+  it (44 %): the loop visits all ~2.1 M pixels while only 2.5–6 % are Interior.
+  v3.0.1 had removed an 8-px `wd == 0` skip as mean-neutral. That test asks for
+  an all-None word, but Endpoint pixels also make a word non-zero while needing
+  no labelling, and endpoint density is independent of Interior density
+  (measured: Interior 2.5–6 % of pixels, Endpoint 0.4–8.5 %, so it can
+  outnumber Interior). `Interior == 1` is the only odd `Feature` value, so
+  masking bit 0 of each byte (`wd & 0x0101…01`) tests for Interior alone: it
+  skips endpoint-only words too (73–89 % of words skippable, against 54–88 %
+  for the all-None test, with the gap widest where endpoints are densest), and
+  on a word that does hold an Interior, `ctz` jumps straight to it instead of
+  testing all 8 bytes. A `static_assert` pins the encoding the mask relies on.
+- **Rejected, with measurements** (recorded so they are not retried): marking
+  the per-pixel body `noinline` to relieve the register pressure that makes the
+  scan reload `cur` from the stack every iteration — **+37 % on a blank frame**,
+  i.e. worse even where the body never runs, and worse on every real image.
+  Dropping the per-row `std::fill` of `cur_row` (provably dead: every read is
+  guarded by the matching `Feature::Interior` test) — segment-identical but lost
+  in the noise, so the safety net stays.
+
 ## v3.0.3 (2026-07-17)
 
 - **Kernel performance: Full-HD one-pass ~13.5 → ~12.0 ms (−11 %), output

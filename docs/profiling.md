@@ -81,20 +81,28 @@ sample %), and the **hottest functions** (demangled). Example (dense image):
 
 ```
 == per-file rollup (self time) ==
-   50.6%   kernels.hpp          (the 5 auto-vectorized stage kernels live here)
-   31.6%   labeling.cpp         (the streaming labeller)
-    6.8%   stl_uninitialized.h  }
-    4.1%   new                  }  the label-table growth/reallocation
-    1.5%   vector.tcc           }
-    0.8%   atan2.c / sin / cos     (per-segment judgment transcendentals)
+   56.1%   kernels.hpp          (the 5 auto-vectorized stage kernels live here)
+   35.5%   labeling.cpp         (the streaming labeller)
+    2.9%   stl_vector.h            (the label pool's row buffers)
+    1.0%   sweeplsd_onepass.cpp    (the ring-buffer driver)
+    0.7%   stb_image.h             (one-off: decoding the input)
+    1.0%   atan2.c / sin / cos     (per-segment judgment transcendentals)
 
 == hottest SOURCE LINES ==
-    6.8%  stl_uninitialized.h:82   (label-vector reallocation copy)
-    4.8%  kernels.hpp:231          (sub-pixel NMS parabola)
-    3.8%  labeling.cpp:565         (the sparse pixel-scan dispatch)
-    2.1%  labeling.cpp:73          (union-find find() loop)
+    4.9%  kernels.hpp:234          (sub-pixel NMS parabola)
+    3.6%  labeling.cpp:574         (the per-pixel labelling body)
+    3.5%  kernels.hpp:79           (gaussian, horizontal pass)
+    3.5%  kernels.hpp:373          (endpoint-candidate emit)
+    2.4%  labeling.cpp:137         (union-find find() loop)
     ...
 ```
+
+The rollup is flat by design — no single line dominates. Two shapes are worth
+recognising if you are used to older profiles of this code: the label table no
+longer reallocates (the bounded pool made `stl_uninitialized.h` / `new` vanish
+from the top; they were ~12 % combined), and the labelling **row scan** no
+longer shows up (v3.0.4's word skip took it from 47 % of `labeling.cpp` to
+13 %, leaving the per-pixel body as the labeller's real cost).
 
 Notes:
 - `--iters` sets sample count (~1 kHz × runtime): 400 iters ≈ a few thousand
