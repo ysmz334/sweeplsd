@@ -21,16 +21,17 @@ state, and each segment is finalized the moment its last pixel passes
 ## Headline numbers
 
 Full-HD (1920×1080) grayscale photos, i7-8700K, AVX2, single thread. All
-baselines are the **genuine author implementations** (von Gioi's LSD; Akinlar
-& Topal's ED_Lib EDLines), built with the same ISA target.
+baselines are the **genuine author implementations** (von Gioi's LSD; Suárez
+et al.'s ELSED; Akinlar & Topal's ED_Lib EDLines), built with the same ISA
+target.
 
-| | SweepLSD (one-pass) | EDLines (ED_Lib) | LSD |
-|---|---|---|---|
-| Median time / frame | **~13 ms** | ~43 ms | ~230 ms |
-| Memory for intermediates | **O(width)** | O(pixels) | O(pixels) |
-| Segment direction error (synthetic GT) | **0.01–0.04°** | 0.14° | 0.14° |
-| F-max, clean–low noise (σ0–5) | **0.963–0.969** | 0.953–0.954 | 0.92 |
-| F-max, heavy noise (σ10–20) | 0.907–0.949 | **0.954–0.961** | 0.50–0.80 |
+| | SweepLSD (one-pass) | ELSED | EDLines (ED_Lib) | LSD |
+|---|---|---|---|---|
+| Median time / frame | **~11 ms** | ~28 ms | ~39 ms | ~230 ms |
+| Memory for intermediates | **O(width)** | O(pixels) | O(pixels) | O(pixels) |
+| Segment direction error (synthetic GT) | **0.01–0.04°** | 0.07–0.11° | 0.14° | 0.14° |
+| F-max, clean–low noise (σ0–5) | 0.963–0.969 | **0.979–0.986** | 0.953–0.954 | 0.92 |
+| F-max, heavy noise (σ10–20) | 0.907–0.949 | **0.986** | 0.954–0.961 | 0.50–0.80 |
 
 Honest caveats, measured and documented in `docs/`: SweepLSD's contrast-gated
 edge model misses soft, low-contrast structure that LSD/EDLines recover
@@ -68,9 +69,10 @@ for OpenCV's LSD).
 
 **Compiler performance note.** The kernels contain no SIMD intrinsics by
 design (FPGA-oriented, readable); the speed comes from compiler
-auto-vectorization. GCC and Clang vectorize them fully (~15–18 ms/Full-HD).
-MSVC compiles and passes all tests but currently does not vectorize the byte
-kernels (~53 ms — about 3× slower); on Windows prefer MinGW-w64 or clang-cl
+auto-vectorization. GCC and Clang vectorize them fully (~11 ms one-pass,
+~16 ms multi-pass at Full-HD). MSVC compiles and passes all tests but currently
+does not vectorize the byte kernels (~39 ms — about 3.4× slower); on Windows
+prefer MinGW-w64 or clang-cl
 for performance-critical use.
 
 ## How it works

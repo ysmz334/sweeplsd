@@ -33,8 +33,15 @@
   Dropping the per-row `std::fill` of `cur_row` (provably dead: every read is
   guarded by the matching `Feature::Interior` test) — segment-identical but lost
   in the noise, so the safety net stays.
-
-## v3.0.3 (2026-07-17)
+- **Docs/README/paper numbers refreshed to the current build** (they had lagged
+  since v3.0.1). Full-HD headline is now one-pass 11.4 ms / multi-pass 15.8 ms;
+  relative to the genuine baselines ELSED 28.2 ms (2.5×), EDLines 39.4 ms
+  (3.5×), LSD 247 ms (22×). Per-stage and MSVC (~39 ms) figures re-measured on
+  150 images. The published README headline table and the paper's per-scale
+  table now include **ELSED** and **EDLines** respectively (previously each
+  omitted one baseline); the per-scale EDLines column is the genuine ED\_Lib on
+  the same Lanczos-downsampled corpus. EDLines is reported as the corpus median
+  (39.4 ms) rather than the mean (43.0 ms), consistent with the tables' captions.
 
 - **Kernel performance: Full-HD one-pass ~13.5 → ~12.0 ms (−11 %), output
   bit-identical.** Three independent rewrites of the shared per-pixel kernels in

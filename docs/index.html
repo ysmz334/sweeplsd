@@ -61,8 +61,8 @@ The moments also give sub-pixel endpoints and the line direction for free.</li>
 <p>The library ships <b>two drivers over the same kernels</b>, tested to produce identical
 output:</p>
 <table><thead><tr><th>driver</th><th style="text-align:left">what it does</th><th>memory</th><th>speed (Full-HD)</th></tr></thead><tbody>
-<tr><td><code>detect()</code></td><td style="text-align:left">one full-image pass per stage — easiest to read and debug</td><td>O(pixels)</td><td>~17 ms</td></tr>
-<tr><td><code>detectOnePass()</code></td><td style="text-align:left">single top-to-bottom sweep; each stage keeps only the rows the next stage needs; labelling trails the input by 7 rows</td><td class="best">O(width)</td><td class="best">~13 ms</td></tr>
+<tr><td><code>detect()</code></td><td style="text-align:left">one full-image pass per stage — easiest to read and debug</td><td>O(pixels)</td><td>~16 ms</td></tr>
+<tr><td><code>detectOnePass()</code></td><td style="text-align:left">single top-to-bottom sweep; each stage keeps only the rows the next stage needs; labelling trails the input by 7 rows</td><td class="best">O(width)</td><td class="best">~11 ms</td></tr>
 </tbody></table>
 <p>The per-pixel core is <b>integer-only</b> (the thesis targeted an FPGA datapath);
 floating point appears only in the once-per-segment finalization (PCA, endpoint projection).
@@ -96,7 +96,7 @@ reported on the <a href="evaluation.html">quality</a> and
 <div class="note"><b>Known limitation, stated plainly.</b> SweepLSD's edge model is
 <i>contrast-gated</i>: a pixel becomes an edge only if its gradient peak clears a threshold.
 Soft, wide luminance ramps (dim wall corners, defocused structure) never form a peak, so
-LSD / EDLines — which link pixels by <i>orientation coherence</i> instead — recover some
+LSD / EDLines / ELSED — which link pixels by <i>orientation coherence</i> instead — recover some
 low-contrast structure SweepLSD misses. The quality and vanishing-point pages quantify
 exactly when this matters and when it does not.</p></div>
 
