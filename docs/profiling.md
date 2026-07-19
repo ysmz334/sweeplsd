@@ -1,9 +1,11 @@
 # Profiling SweepLSD — where does the one-pass time go?
 
 Three ways to see how the streaming `detectOnePass()` spends its time. All
-measure the **shipped AVX2 build** (MinGW `g++ -O3 -mavx2`); the MSVC build does
-not auto-vectorize the byte kernels and has a different, slower profile, so do
-not profile it if you want representative numbers.
+measure the **shipped AVX2 build** (MinGW `g++ -O3 -mavx2`, GCC 15.2 — see the
+compiler note in the README); the MSVC build does not auto-vectorize the byte
+kernels and has a different, slower profile, so do not profile it if you want
+representative numbers. Older GCC (8.1) also shifts the balance between stages,
+so quote the compiler alongside any profile you publish.
 
 | view | tool | granularity | setup |
 |------|------|-------------|-------|
@@ -71,7 +73,7 @@ time is inside the pipeline. Then, **with MinGW on PATH** (the profiler shells
 out to `addr2line`):
 
 ```powershell
-$env:Path = "C:\Program Files\mingw-w64\x86_64-8.1.0-posix-sjlj-rt_v6-rev0\mingw64\bin;" + $env:Path
+$env:Path = "E:\dev\claude\tools\mingw64-15.2\bin;" + $env:Path
 .\build_profile\line_profiler.exe .\build_profile\profile_driver.exe `
     E:\dataset\WasedaDataset\IMGP0942.png --iters 400
 ```

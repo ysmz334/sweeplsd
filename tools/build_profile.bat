@@ -16,7 +16,7 @@ REM ===================================================================
 setlocal
 
 REM --- point this at your MinGW bin if g++ is not already on PATH ---
-set "MINGW=C:\Program Files\mingw-w64\x86_64-8.1.0-posix-sjlj-rt_v6-rev0\mingw64\bin"
+set "MINGW=E:\dev\claude\tools\mingw64-15.2\bin"
 if exist "%MINGW%\g++.exe" set "PATH=%MINGW%;%PATH%"
 
 where g++ >nul 2>nul

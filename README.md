@@ -22,12 +22,12 @@ state, and each segment is finalized the moment its last pixel passes
 
 Full-HD (1920×1080) grayscale photos, i7-8700K, AVX2, single thread. All
 baselines are the **genuine author implementations** (von Gioi's LSD; Suárez
-et al.'s ELSED; Akinlar & Topal's ED_Lib EDLines), built with the same ISA
-target.
+et al.'s ELSED; Akinlar & Topal's ED_Lib EDLines), built with the same
+compiler and the same ISA target as SweepLSD.
 
 | | SweepLSD (one-pass) | ELSED | EDLines (ED_Lib) | LSD |
 |---|---|---|---|---|
-| Median time / frame | **~11 ms** | ~28 ms | ~39 ms | ~230 ms |
+| Median time / frame | **~8.8 ms** | ~25 ms | ~34 ms | ~151 ms |
 | Memory for intermediates | **O(width)** | O(pixels) | O(pixels) | O(pixels) |
 | Segment direction error (synthetic GT) | **0.01–0.04°** | 0.07–0.11° | 0.14° | 0.14° |
 | F-max, clean–low noise (σ0–5) | 0.963–0.969 | **0.979–0.986** | 0.953–0.954 | 0.92 |
@@ -69,11 +69,21 @@ for OpenCV's LSD).
 
 **Compiler performance note.** The kernels contain no SIMD intrinsics by
 design (FPGA-oriented, readable); the speed comes from compiler
-auto-vectorization. GCC and Clang vectorize them fully (~11 ms one-pass,
-~16 ms multi-pass at Full-HD). MSVC compiles and passes all tests but currently
-does not vectorize the byte kernels (~39 ms — about 3.4× slower); on Windows
-prefer MinGW-w64 or clang-cl
-for performance-critical use.
+auto-vectorization, so **which compiler you build with is part of the
+performance story**. Detections do not change — output is bit-identical across
+every toolchain below (verified over 186 images, both drivers).
+
+| toolchain | one-pass | multi-pass |
+|---|---|---|
+| GCC 15.2 / 16.1, Clang | **~8.8 ms** | ~12 ms |
+| GCC 8.1 (2018) | ~11.4 ms | ~15.2 ms |
+| MSVC 19.4x | ~40 ms | ~42 ms |
+
+The generation gap within GCC is as real as the vendor gap: GCC 8.1 leaves ~22%
+on the table at Full-HD, and the cost that scales with pixel count drops ~41%
+from GCC 8.1 to 15.2. **Prefer GCC ≥ 15 or Clang.** MSVC compiles and passes all
+tests but does not vectorize the byte kernels (~4.5× slower); on Windows prefer
+MinGW-w64 or clang-cl for performance-critical use.
 
 ## How it works
 
