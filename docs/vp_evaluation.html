@@ -14,7 +14,7 @@ estimation on York Urban (outdoor) and NYU (indoor), plus a full error-source de
 and a fair "best estimator per detector" protocol.</p>
 <nav><a href="index.html">Algorithm</a> <a href="benchmarks.html">Speed</a>
 <a href="evaluation.html">Quality</a> <a href="vp_evaluation.html"><b>Vanishing points</b></a>
-<a href="fpga.html">FPGA</a></nav>
+<a href="fpga.html">FPGA</a> <a href="https://github.com/ysmz334/sweeplsd">Repository</a></nav>
 
 <h2>1. Protocol</h2>
 <p>Hand-labelled line annotations are incomplete and geometrically coarse, so detectors are
@@ -90,11 +90,16 @@ while LSD clearly leads recall at 2°. The estimator that measured best overall 
 ships as working code.</p>
 
 <div class="key"><b>Takeaway.</b> "Which detector is best for vanishing points?" has no
-detector-only answer: it is a property of the (detector × estimator) pair. With the
-estimator this repository recommends and ships, SweepLSD measured 5.98° median on indoor
-NYU — <b>5.25° with the optional linker, the best of all detector/estimator combinations
-tested</b> (best non-SweepLSD: ELSED at 6.53°) — while remaining 2.8× / 3.9× / 23× faster
-than ELSED / ED_Lib / LSD upstream of the estimator.</div>
+detector-only answer: it is a property of the (detector × estimator) pair. Two sets of indoor
+numbers appear on this page and they are measured differently, so to be explicit: the table
+above is the <i>cross-validated</i> protocol (variants selected on one half of the data,
+scored on the other), where SweepLSD is best at <b>6.08°</b> and <b>5.23°</b> with the linker.
+The figures usually quoted for the shipped library are the single recommended estimator run on
+every image, without selection: there SweepLSD measures <b>5.98°</b>, and <b>5.25° with the
+optional linker — the best of all detector/estimator combinations tested</b> (best
+non-SweepLSD: ELSED at 6.53°). The two protocols agree on the ordering. Either way SweepLSD
+stays 2.8× / 3.9× / 23× faster than ELSED / ED_Lib / LSD upstream of the estimator at
+Full-HD — and 2.8× / 4.0× / 17× on the 640×480 frames this study actually runs on.</div>
 
 <div class="note"><b>Reproduce it.</b> Build with <code>-DSWEEPLSD_BUILD_BENCH=ON</code>;
 export the manifests with <code>tools/yud_export.py</code> (York Urban) /

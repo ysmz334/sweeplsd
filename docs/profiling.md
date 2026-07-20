@@ -35,19 +35,23 @@ cmake --build build --target sweeplsd_hotspots
 Example (Full-HD, i7-class):
 
 ```
-Image: IMGP0942.png (1920x1080) | 2938 segments | detectOnePass 16.8 ms
-  stage               Mcycles    share    ms(est)
-  1. gaussian 5x5       204.6     8.5%     1.43
-  2. gradient 2x2       126.9     5.3%     0.89
-  3. edge thr+NMS       248.4    10.3%     1.73
-     sub-pixel NMS      280.1    11.6%     1.95
-  4. endpoint cand      368.4    15.3%     2.57
-  5. label+judge       1163.1    48.2%     8.11
+Image: IMGP0942.png (1920x1080)  |  2938 segments  |  detectOnePass 11.24 ms (median of 11)
+  stage                   Mcycles    share    ms(est)
+  ingest (memcpy)             5.0     1.1%     0.129
+  1. gaussian 5x5            37.5     8.7%     0.972
+  2. gradient 2x2            37.0     8.5%     0.960
+  3. edge thr+NMS            39.6     9.2%     1.029
+     sub-pixel NMS           69.7    16.1%     1.810
+  4. endpoint cand           45.9    10.6%     1.190
+  5. label+judge            198.4    45.8%     5.146
+  TOTAL                     433.1   100.0%    11.236
 ```
 
 The split is **content-dependent**: on sparse images the endpoint-candidate
-stage dominates (~34 %); on dense/cluttered ones the labeller does (~48 %). Run
-a few representative images.
+stage dominates; on dense/cluttered ones the labeller does (~46 % above). Run a
+few representative images. Note that only `label+judge` and `sub-pixel NMS`
+really track image content — the four full-frame kernels above them cost the
+same on a blank frame as on a cluttered one.
 
 ---
 
@@ -115,7 +119,7 @@ Notes:
   though they're inlined into `processRow`.
 - The `[library / no-symbol]` bucket in the *function* list is optimized code
   `addr2line -f` can't name; the *line* rollup still resolves it (that is the
-  view to read). It cross-checks against tool A (labelling ≈ 48 %).
+  view to read). It cross-checks against tool A (labelling ≈ 46 %).
 
 ## C. Visual Studio Performance Profiler + cv2pdb (GUI)
 

@@ -13,7 +13,7 @@
 implementations, built with the same compiler and ISA target (GCC 15.2, AVX2).</p>
 <nav><a href="index.html">Algorithm</a> <a href="benchmarks.html"><b>Speed</b></a>
 <a href="evaluation.html">Quality</a> <a href="vp_evaluation.html">Vanishing points</a>
-<a href="fpga.html">FPGA</a></nav>
+<a href="fpga.html">FPGA</a> <a href="https://github.com/ysmz334/sweeplsd">Repository</a></nav>
 
 <h2>1. Dataset-wide timing (150 Full-HD photos)</h2>
 <p>Median per-image processing time over the 150-photo Waseda dataset (1920×1080, 8-bit
@@ -30,7 +30,7 @@ linked against an OpenCV built with that same compiler — and timed in one proc
 <tr><td>LSD</td><td>205 ms</td><td>23×</td><td>O(pixels)</td></tr>
 </tbody></table>
 <p>Corpus-mean segment counts at author defaults: SweepLSD 1484, ELSED 1168, LSD 1712,
-EDLines 1952 (on a rich urban photo, IMGP0942: 2935 / 3064 / 4520 / 5210). The speed does
+EDLines 1952 (on a rich urban photo, IMGP0942: 2938 / 3064 / 4520 / 5210). The speed does
 not come from detecting less than the next-fastest method — SweepLSD detects ~27%
 <i>more</i> segments than ELSED; LSD and EDLines detect more at their defaults, consistent
 with their recovery of the soft, low-contrast structure that SweepLSD's contrast-gated
@@ -82,6 +82,13 @@ each detector's 150 per-image times by <em>its own</em> median, so the four dist
 compared on shape alone — how far the frame time wanders from typical, regardless of how fast
 that typical is.</p>
 
+<p class="ceil">Protocol: the same 150 Full-HD photos and the same four GCC 15.2 + AVX2 builds as
+§1, run interleaved image-by-image inside one measurement window, each image timed as the median
+of 15 runs (9 for LSD). That window measured 9.3 / 27.0 / 37.1 / 224 ms — a few percent above §1,
+which was taken on a quieter machine — while the ratios between detectors reproduced
+(2.84× / 4.01× / 24.1×). The absolute times below are this window's; the parenthesised ratios are
+the machine-independent form, which is why dispersion is reported in scale-free terms.</p>
+
 <p><img src="assets/time_spread.svg" alt="Per-frame time spread of SweepLSD, ELSED, EDLines and LSD,
 each normalised to its own median. SweepLSD's distribution is the narrowest and has the shortest
 upper tail." style="width:100%;margin-top:14px"></p>
@@ -98,40 +105,27 @@ upper tail." style="width:100%;margin-top:14px"></p>
 <tr><td>LSD</td><td>224 ms</td><td>±59.8 ms</td><td>25.8%</td>
 <td>358 ms <span class="ceil">(1.60×)</span></td><td>465 ms <span class="ceil">(2.07×)</span></td></tr>
 </tbody></table>
-<p class="ceil">Absolute times are from this section's own run and sit a few percent above §1's
-medians (see the protocol note below); the ratios in parentheses are the machine-independent form.</p>
+<p><b>SweepLSD is the tightest on all three scale-free measures</b>, and its absolute spread is
+smaller by a wider margin still — ±2.0 ms against ±11.6, ±13.6 and ±59.8 ms. Part of that last
+gap is arithmetic rather than virtue: a method with a smaller total simply has less room to vary
+in milliseconds. The scale-free columns are the ones that carry the claim, and they agree.</p>
 
-<p>SweepLSD is the tightest on all three scale-free measures, and its absolute spread is smaller
-by a wider margin still — ±2.0 ms against ±11.6, ±13.6 and ±59.8 ms. Part of that last gap is
-arithmetic rather than virtue: a method with a smaller total simply has less room to vary in
-milliseconds. The scale-free columns are the ones that carry the claim, and they agree.</p>
+<p>The reason is structural. Roughly 3.4 ms of SweepLSD's Full-HD cost is spent identically on
+every image — ingest, the 5×5 gaussian, the 2×2 gradient and the thresholding pass all touch
+every pixel and nothing else. Only labelling and the sub-pixel fit scale with how much edge the
+image actually contains, so a densely textured frame lengthens part of the work rather than all
+of it.</p>
 
-<div class="note"><p style="margin-top:0"><b>Where the difference actually lives.</b> The middle halves of these
-distributions are not far apart — the interquartile band is 0.85–1.17× for SweepLSD against
-0.76–1.26× for ELSED. The separation is in the <em>upper tail</em>: at the 95th percentile SweepLSD
-is 1.48× its median where ELSED is 2.09×, and the worst frame in the corpus costs SweepLSD 1.65×
-its median against 2.5× for both ELSED and EDLines. That is the part a real-time budget has to
-absorb, but it also means the typical frame is more alike across detectors than the summary
-statistics suggest.</p>
-
-<p>Why the fixed pipeline shows up here: roughly 3.4 ms of SweepLSD's Full-HD cost is spent
-identically on every image — ingest, the 5×5 gaussian, the 2×2 gradient and the thresholding pass
-all touch every pixel and nothing else. Only labelling and the sub-pixel fit scale with how much
-edge the image actually contains, so a densely textured frame lengthens part of the work rather
-than all of it.</p></div>
-
-
-<div class="warn"><b>What this is not.</b> These are differences <em>between images</em>, measured
-as each image's median over repeated runs. They are not run-to-run jitter on a fixed input: on a
-general-purpose Windows box that sits at 3–4% and is dominated by the operating system, not by the
-detector, so it cannot be attributed to any of them here.</div>
-
-<p class="ceil">Protocol: 150 Full-HD photos, all four detectors built with the same GCC 15.2 +
-AVX2 and run interleaved image-by-image inside one measurement window, each image timed as the
-median of 15 runs (9 for LSD). This run's own medians were 9.3 / 27.0 / 37.1 / 224 ms — a few
-percent above the figures in §1, which were taken on a quieter machine; the ratios between
-detectors reproduce (2.84× / 4.01× / 24.1×), which is why the table above reports dispersion in
-scale-free terms.</p>
+<div class="note"><p style="margin-top:0"><b>Two things this does not say.</b> First, the
+advantage is in the tail, not the middle. The interquartile bands are close — 0.85–1.17× for
+SweepLSD against 0.76–1.26× for ELSED — and the separation only opens up above the 95th
+percentile (1.48× against 2.09×) and at the worst frame (1.65× against 2.5× for both ELSED and
+EDLines). That tail is exactly what a real-time budget has to absorb, but the <em>typical</em>
+frame is more alike across detectors than the summary statistics suggest.</p>
+<p>Second, these are differences <em>between images</em>, each image timed as its own median over
+repeated runs. They are not run-to-run jitter on a fixed input: on a general-purpose Windows box
+that sits at 3–4% and is dominated by the operating system rather than the detector, so it cannot
+be attributed to any of them here.</p></div>
 
 <h2>5. Where the time goes</h2>
 <p>Per-stage profile (<code>sweeplsd_profile</code>, corpus mean over the 150 Full-HD photos,
@@ -150,19 +144,38 @@ working set stays in L1/L2 — which is why it is <i>faster</i> than the multi-p
 despite doing identical work.</p>
 
 <h2>6. Compiler dependence (measured honestly)</h2>
-<p>The kernels contain no SIMD intrinsics by design; the speed comes from compiler
-auto-vectorization, so the toolchain is part of the performance story. Detections are
-not: output is <b>bit-identical across every build below</b>, verified float-bit-exact
-over 186 images for both drivers.</p>
-<table><thead><tr><th>compiler</th><th>Full-HD one-pass</th><th style="text-align:left">note</th></tr></thead><tbody>
-<tr><td>GCC (MinGW-w64 15.2)</td><td class="best">8.8 ms</td><td style="text-align:left">recommended; GCC 16.1 and Clang land in the same place</td></tr>
-<tr><td>GCC (MinGW-w64 8.1)</td><td>11.4 ms</td><td style="text-align:left">the 2018 vectorizer leaves ~22% on the table — the pixel-count-proportional cost alone is ~41% higher than GCC 15.2</td></tr>
-<tr><td>MSVC 2022</td><td>~40 ms</td><td style="text-align:left">correct (all tests pass) but does not vectorize the byte kernels — prefer MinGW-w64 or clang-cl on Windows</td></tr>
+<p>The kernels contain no SIMD intrinsics by design, so all of the speed comes from compiler
+auto-vectorization. That makes the toolchain not a footnote but a factor of four: the same
+source is 8.8 ms under GCC and roughly 40 ms under MSVC. What does <em>not</em> change is
+what comes out — the segments are <b>bit-identical across every build below</b>, verified
+float-for-float in exact hex form across GCC, Clang and MSVC (40 photographs, both drivers,
+123,454 segment records), and over 186 images between the two GCC generations.</p>
+<table><thead><tr><th>compiler</th><th>Full-HD one-pass</th><th>vs GCC 15.2</th><th style="text-align:left">auto-vectorizes</th></tr></thead><tbody>
+<tr><td>GCC 15.2 (MinGW-w64)</td><td class="best">8.8 ms</td><td class="best">1.00×</td><td style="text-align:left">all five stage kernels — the recommended build</td></tr>
+<tr><td>GCC 8.1 (2018)</td><td>11.4 ms</td><td>1.25×</td><td style="text-align:left">all five, less well; the pixel-count-proportional cost alone is ~41% higher than GCC 15.2</td></tr>
+<tr><td>Clang 22.1 (llvm-mingw)</td><td>~33 ms</td><td>3.8×</td><td style="text-align:left">all but the endpoint-candidate kernel</td></tr>
+<tr><td>MSVC 2022</td><td>~40 ms</td><td>4.6×</td><td style="text-align:left">all but the endpoint-candidate, gradient and edge kernels</td></tr>
 </tbody></table>
-<p>The gap is specific to this kind of code: rebuilding the baselines across the same GCC
-generations moves them by only a few percent (ELSED 3.03 → 3.00 ms/MP, unchanged within
+<p>The penalty is not spread across the pipeline — it sits in one kernel. Per stage on a
+dense Full-HD photo, the endpoint-candidate stage costs <b>2.6 ms under GCC 15.2 against
+27.8 ms under Clang and 26.6 ms under MSVC</b>: a tenfold penalty on a single 5×5 ring test,
+while smoothing and labelling stay within noise of GCC everywhere. MSVC gives up a further
+3× on the gradient stage and 2× on the edge stage. Neither is an ISA-flag problem
+(<code>-march=native</code> changes nothing) and neither is a verdict on the compilers: it is
+a portability limitation in how these kernels are written, and making all five vectorize
+under Clang and MSVC as they do under GCC is open work. Until then: build with
+<b>GCC ≥ 15</b> if the figures on this page matter to you. Clang and MSVC compile cleanly,
+pass every test, and return exactly the same segments — about 4× slower.</p>
+<p class="ceil">Protocol: all four toolchains built from the same source at the same ISA
+target (AVX2) and run interleaved image-by-image over the 150 photos in one window, each
+image the median of 7 runs. The ratio column is that measurement and is the
+machine-independent form; the absolute column applies it to this page's 8.8 ms reference,
+since that window measured GCC 15.2 at 9.7 ms on a slightly busier machine.</p>
+<p>The sensitivity is specific to this kind of code: rebuilding the baselines across the same
+GCC generations moves them by only a few percent (ELSED 3.03 → 3.00 ms/MP, unchanged within
 noise), because their anchor-chaining inner loops are branch-bound and do not vectorize.
-The raster-sweep design is what makes a better vectorizer pay off.</p>
+The raster-sweep design is what makes a better vectorizer pay off — and, as the Clang and
+MSVC rows show, what makes a worse one cost.</p>
 
 <div class="note"><b>Reproduce it.</b> <code>cmake -DSWEEPLSD_BUILD_BENCH=ON</code> fetches the
 baseline detectors at configure time (LSD is AGPL-3.0 and is deliberately <i>not</i> vendored

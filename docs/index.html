@@ -16,7 +16,7 @@ with an integer-only streaming core.</p>
 <a href="fpga.html">FPGA</a> <a href="https://github.com/ysmz334/sweeplsd">Repository</a></nav>
 
 <img class="wide" src="assets/hero_segments.png" alt="SweepLSD segments on a Full-HD photo">
-<p class="sub" style="margin-top:4px">Full-HD photo, 2935 segments in ~11 ms (one detector sweep, single thread).</p>
+<p class="sub" style="margin-top:4px">Full-HD photo, 2938 segments in ~11 ms (one detector sweep, single thread).</p>
 
 <div class="key"><b>The idea.</b> Most line segment detectors hold the whole image (and several
 full-size intermediates) in memory and revisit pixels many times. SweepLSD instead treats the
@@ -75,9 +75,11 @@ auto-vectorize them, which keeps the code readable and portable.</p>
 <h2>3. Measured refinements (all on by default)</h2>
 <p><code>Params{}</code> is SweepLSD as published: the refinements below are all enabled, and
 each was added only after measuring its effect on the three evaluation axes (synthetic-GT
-F-score, real-photo inspection, downstream vanishing points). Each can be disabled
-individually, and <code>Params::original2014()</code> reproduces the 2014 thesis
-implementation's behaviour:</p>
+F-score, real-photo inspection, downstream vanishing points). The right-hand column states
+which way each one moved the needle; the measurements behind it are on the
+<a href="evaluation.html">quality</a> and <a href="vp_evaluation.html">vanishing-point</a>
+pages. Each can be disabled individually, and <code>Params::original2014()</code> reproduces
+the 2014 thesis implementation's behaviour, so any row can be reproduced by turning it off:</p>
 <table><thead><tr><th>improvement</th><th style="text-align:left">what</th><th style="text-align:left">measured effect</th></tr></thead><tbody>
 <tr><td>strict NMS tie-break</td><td style="text-align:left">gradient plateaus thin to 1 px instead of 2</td><td style="text-align:left">cleaner edges, fewer duplicate labels</td></tr>
 <tr><td>sub-pixel NMS</td><td style="text-align:left">parabolic peak interpolation accumulated into the moments</td><td style="text-align:left">lateral error ↓</td></tr>
@@ -98,7 +100,7 @@ reported on the <a href="evaluation.html">quality</a> and
 Soft, wide luminance ramps (dim wall corners, defocused structure) never form a peak, so
 LSD / EDLines / ELSED — which link pixels by <i>orientation coherence</i> instead — recover some
 low-contrast structure SweepLSD misses. The quality and vanishing-point pages quantify
-exactly when this matters and when it does not.</p></div>
+exactly when this matters and when it does not.</div>
 
 <footer>SweepLSD documentation. Figures regenerated with <code>sweeplsd_dump_stages</code> /
 <code>sweeplsd_cli</code> from this repository. Sample photograph from the Waseda dataset
