@@ -2,10 +2,11 @@
 
 Three ways to see how the streaming `detectOnePass()` spends its time. All
 measure the **shipped AVX2 build** (MinGW `g++ -O3 -mavx2`, GCC 15.2 — see the
-compiler note in the README); the MSVC build does not auto-vectorize the byte
-kernels and has a different, slower profile, so do not profile it if you want
-representative numbers. Older GCC (8.1) also shifts the balance between stages,
-so quote the compiler alongside any profile you publish.
+compiler note in the README); an MSVC `cl` build does not auto-vectorize the byte
+kernels and has a different, much slower profile (the endpoint stage alone
+becomes ~60% of the frame), so do not profile it if you want representative
+numbers — use clang-cl if you need the MSVC ABI. Older GCC (8.1) also shifts the
+balance between stages, so quote the compiler alongside any profile you publish.
 
 | view | tool | granularity | setup |
 |------|------|-------------|-------|

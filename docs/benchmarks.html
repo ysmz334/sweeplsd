@@ -145,37 +145,47 @@ despite doing identical work.</p>
 
 <h2>6. Compiler dependence (measured honestly)</h2>
 <p>The kernels contain no SIMD intrinsics by design, so all of the speed comes from compiler
-auto-vectorization. That makes the toolchain not a footnote but a factor of four: the same
-source is 8.8 ms under GCC and roughly 40 ms under MSVC. What does <em>not</em> change is
-what comes out — the segments are <b>bit-identical across every build below</b>, verified
-float-for-float in exact hex form across GCC, Clang and MSVC (40 photographs, both drivers,
-123,454 segment records), and over 186 images between the two GCC generations.</p>
-<table><thead><tr><th>compiler</th><th>Full-HD one-pass</th><th>vs GCC 15.2</th><th style="text-align:left">auto-vectorizes</th></tr></thead><tbody>
-<tr><td>GCC 15.2 (MinGW-w64)</td><td class="best">8.8 ms</td><td class="best">1.00×</td><td style="text-align:left">all five stage kernels — the recommended build</td></tr>
-<tr><td>GCC 8.1 (2018)</td><td>11.4 ms</td><td>1.25×</td><td style="text-align:left">all five, less well; the pixel-count-proportional cost alone is ~41% higher than GCC 15.2</td></tr>
-<tr><td>Clang 22.1 (llvm-mingw)</td><td>~33 ms</td><td>3.8×</td><td style="text-align:left">all but the endpoint-candidate kernel</td></tr>
-<tr><td>MSVC 2022</td><td>~40 ms</td><td>4.6×</td><td style="text-align:left">all but the endpoint-candidate, gradient and edge kernels</td></tr>
+auto-vectorization. That makes the toolchain not a footnote but a factor of four between the
+best and worst option below. What does <em>not</em> change is what comes out — the segments
+are <b>bit-identical across every build below</b>, verified float-for-float in exact hex form
+across GCC, Clang, clang-cl and MSVC (40 photographs, both drivers, 123,454 segment records),
+and over 186 images between the two GCC generations.</p>
+<table><thead><tr><th>compiler</th><th>ABI</th><th>Full-HD one-pass</th><th>vs GCC 15.2</th><th style="text-align:left">auto-vectorizes</th></tr></thead><tbody>
+<tr><td>GCC 15.2 (MinGW-w64)</td><td>MinGW</td><td class="best">8.8 ms</td><td class="best">1.00×</td><td style="text-align:left">all five stage kernels — the recommended build</td></tr>
+<tr><td>GCC 8.1 (2018)</td><td>MinGW</td><td>11.4 ms</td><td>1.26×</td><td style="text-align:left">all five, less well; the pixel-count-proportional cost alone is ~41% higher than GCC 15.2</td></tr>
+<tr><td>Clang 22.1 (llvm-mingw)</td><td>MinGW</td><td>~12 ms</td><td>1.34×</td><td style="text-align:left">all five</td></tr>
+<tr><td>clang-cl 22.1</td><td>MSVC</td><td>~12 ms</td><td>1.36×</td><td style="text-align:left">all five — the recommended build for the MSVC ABI</td></tr>
+<tr><td>MSVC 19.34 (<code>cl</code>)</td><td>MSVC</td><td>~37 ms</td><td>4.2×</td><td style="text-align:left">all but the endpoint-candidate, gradient and edge kernels</td></tr>
 </tbody></table>
-<p>The penalty is not spread across the pipeline — it sits in one kernel. Per stage on a
-dense Full-HD photo, the endpoint-candidate stage costs <b>2.6 ms under GCC 15.2 against
-27.8 ms under Clang and 26.6 ms under MSVC</b>: a tenfold penalty on a single 5×5 ring test,
-while smoothing and labelling stay within noise of GCC everywhere. MSVC gives up a further
-3× on the gradient stage and 2× on the edge stage. Neither is an ISA-flag problem
-(<code>-march=native</code> changes nothing) and neither is a verdict on the compilers: it is
-a portability limitation in how these kernels are written, and making all five vectorize
-under Clang and MSVC as they do under GCC is open work. Until then: build with
-<b>GCC ≥ 15</b> if the figures on this page matter to you. Clang and MSVC compile cleanly,
-pass every test, and return exactly the same segments — about 4× slower.</p>
-<p class="ceil">Protocol: all four toolchains built from the same source at the same ISA
-target (AVX2) and run interleaved image-by-image over the 150 photos in one window, each
-image the median of 7 runs. The ratio column is that measurement and is the
-machine-independent form; the absolute column applies it to this page's 8.8 ms reference,
-since that window measured GCC 15.2 at 9.7 ms on a slightly busier machine.</p>
+<p>The one toolchain that is far off is MSVC's own <code>cl</code>, and the penalty is not
+spread across the pipeline — it sits in one kernel. Taking the median over the 150-photo
+corpus, the endpoint-candidate stage costs <b>1.7 ms under GCC 15.2 and 5.0 ms under Clang,
+against 23 ms under <code>cl</code></b> — a single 5×5 ring test taking 60% of the frame,
+while smoothing and labelling stay within noise of GCC everywhere. <code>cl</code> gives up a
+further 3× on the gradient stage and 2× on the edge stage. This is not an ISA-flag problem
+(<code>-march=native</code> changes nothing), and it is not the kernel's dataflow either:
+<code>cl</code> inlines the kernel and then emits fully scalar code, and it also declines a
+reduced probe of the same shape with only 25 loads and one comparison. Rewriting around that
+would mean the hand-written intrinsics this project deliberately avoids, so it is recorded as
+a limit of that vectorizer. <b>clang-cl keeps the MSVC ABI and recovers the speed</b> — 3.0×
+faster than <code>cl</code> on 150 of 150 images, and within 1.4× of GCC. Every toolchain
+here compiles cleanly, passes every test, and returns exactly the same segments.</p>
+<p>Earlier revisions of this page reported Clang at ~33 ms (3.8×) and called the
+gap open work. It was: Clang's inliner was keeping the ring test as a real call — one call
+per pixel — which blocked vectorization of the row loop outright. Force-inlining it moved
+Clang from 3.8× to 1.34× with bit-identical output and no effect on GCC. The
+<code>cl</code> row is the part that did not yield.</p>
+<p class="ceil">Protocol: all toolchains built from the same source at the same ISA target
+(AVX2) and run interleaved image-by-image over the 150 photos in one window, each image the
+median of 7 runs. The ratio column is that measurement and is the machine-independent form;
+the absolute column applies it to this page's 8.8 ms reference, since that window measured
+GCC 15.2 at 9.2 ms on a slightly busier machine. The MSVC figure is toolset 19.34 (VS 2022
+17.4); newer <code>cl</code> releases were not tested.</p>
 <p>The sensitivity is specific to this kind of code: rebuilding the baselines across the same
 GCC generations moves them by only a few percent (ELSED 3.03 → 3.00 ms/MP, unchanged within
 noise), because their anchor-chaining inner loops are branch-bound and do not vectorize.
-The raster-sweep design is what makes a better vectorizer pay off — and, as the Clang and
-MSVC rows show, what makes a worse one cost.</p>
+The raster-sweep design is what makes a better vectorizer pay off — and, as the
+<code>cl</code> row shows, what makes a worse one cost.</p>
 
 <div class="note"><b>Reproduce it.</b> <code>cmake -DSWEEPLSD_BUILD_BENCH=ON</code> fetches the
 baseline detectors at configure time (LSD is AGPL-3.0 and is deliberately <i>not</i> vendored

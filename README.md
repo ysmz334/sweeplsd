@@ -67,29 +67,34 @@ Use as a CMake package: `find_package(sweeplsd CONFIG REQUIRED)` then link
 vendored stb), or `sweeplsd::opencv` (header-only `cv::Mat` adapter, a drop-in
 for OpenCV's LSD).
 
-**Compiler performance note — build with GCC ≥ 15.** The kernels contain no
-SIMD intrinsics by design (FPGA-oriented, readable), so *all* of the speed comes
-from compiler auto-vectorization. That makes the toolchain worth a factor of
-four. Detections do not change: output is bit-identical across every toolchain
-below (verified float-for-float across GCC / Clang / MSVC, and over 186 images
-between the GCC generations, for both drivers).
+**Compiler performance note — GCC ≥ 15 on the MinGW ABI, clang-cl on the MSVC
+ABI.** The kernels contain no SIMD intrinsics by design (FPGA-oriented,
+readable), so *all* of the speed comes from compiler auto-vectorization, which
+makes the toolchain worth a factor of four between the best and worst option
+here. Detections do not change: output is bit-identical across every toolchain
+below (verified float-for-float across GCC / Clang / clang-cl / MSVC, and over
+186 images between the GCC generations, for both drivers).
 
-| toolchain | one-pass | multi-pass | vs GCC 15.2 |
-|---|---|---|---|
-| **GCC 15.2 / 16.1** | **~8.8 ms** | ~12 ms | 1.00× |
-| GCC 8.1 (2018) | ~11.4 ms | ~15 ms | 1.25× |
-| Clang 22.1 (llvm-mingw) | ~33 ms | ~34 ms | 3.8× |
-| MSVC 19.4x | ~40 ms | ~42 ms | 4.6× |
+| toolchain | ABI | one-pass | multi-pass | vs GCC 15.2 |
+|---|---|---|---|---|
+| **GCC 15.2 / 16.1** | MinGW | **~8.8 ms** | ~12 ms | 1.00× |
+| GCC 8.1 (2018) | MinGW | ~11.4 ms | ~15 ms | 1.26× |
+| Clang 22.1 (llvm-mingw) | MinGW | ~12 ms | ~15 ms | 1.34× |
+| **clang-cl 22.1** | MSVC | **~12 ms** | ~15 ms | 1.36× |
+| MSVC 19.34 (`cl`) | MSVC | ~37 ms | ~40 ms | 4.2× |
 
-The whole Clang/MSVC gap comes from **one kernel**: the endpoint-candidate 5×5
-ring test costs 2.6 ms under GCC 15.2 but 27.8 ms under Clang and 26.6 ms under
-MSVC, while smoothing and labelling are within noise everywhere (MSVC loses a
-further 3× on gradient and 2× on edge). It is not an ISA-flag problem —
-`-march=native` changes nothing. This is a portability limitation of how these
-kernels are written rather than a verdict on the compilers, and fixing it is
-open work; see [`docs/benchmarks.html`](https://ysmz334.github.io/sweeplsd/benchmarks.html)
-§6. Clang and MSVC build cleanly, pass every test, and return exactly the same
-segments — about 4× slower.
+Only MSVC's own `cl` is far off, and **one kernel** accounts for it: the
+endpoint-candidate 5×5 ring test, whose median cost over the 150-photo corpus is
+1.7 ms under GCC 15.2 and 5.0 ms under Clang but **23 ms under `cl`**, where it
+alone is 60% of the frame (`cl` also loses 3× on gradient and 2× on edge). It is
+not an ISA-flag problem — `-march=native` changes nothing. `cl` is the only
+toolchain here that will not vectorize that kernel: it inlines it, then emits
+fully scalar code, and it declines a reduced 25-load probe too, so this is a
+limit of that vectorizer rather than something the kernel can be rewritten
+around without the hand-written intrinsics this project deliberately avoids.
+Using clang-cl keeps the MSVC ABI and recovers the speed. All toolchains build
+cleanly, pass every test, and return exactly the same segments; see
+[`docs/benchmarks.html`](https://ysmz334.github.io/sweeplsd/benchmarks.html) §6.
 
 ## How it works
 
