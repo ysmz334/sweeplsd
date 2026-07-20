@@ -27,7 +27,7 @@ compiler and the same ISA target as SweepLSD.
 
 | | SweepLSD (one-pass) | ELSED | EDLines (ED_Lib) | LSD |
 |---|---|---|---|---|
-| Median time / frame | **~8.8 ms** | ~25 ms | ~34 ms | ~151 ms |
+| Median time / frame | **~8.8 ms** | ~25 ms | ~34 ms | ~205 ms |
 | Memory for intermediates | **O(width)** | O(pixels) | O(pixels) | O(pixels) |
 | Segment direction error (synthetic GT) | **0.01–0.04°** | 0.07–0.11° | 0.14° | 0.14° |
 | F-max, clean–low noise (σ0–5) | 0.963–0.969 | **0.979–0.986** | 0.953–0.954 | 0.92 |
