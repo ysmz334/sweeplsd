@@ -74,14 +74,20 @@ that typical is.</p>
 each normalised to its own median. SweepLSD's distribution is the narrowest and has the shortest
 upper tail." style="width:100%;margin-top:14px"></p>
 
-<table><thead><tr><th>detector</th><th>SD</th><th>CV (SD ÷ mean)</th><th>p95 ÷ median</th>
-<th>worst ÷ median</th></tr></thead><tbody>
-<tr><td class="sweep">SweepLSD (one-pass)</td><td class="best">±2.0 ms</td><td class="best">21.5%</td>
-<td class="best">1.48×</td><td class="best">1.65×</td></tr>
-<tr><td>ELSED</td><td>±11.6 ms</td><td>40.7%</td><td>2.09×</td><td>2.52×</td></tr>
-<tr><td>EDLines (ED_Lib)</td><td>±13.6 ms</td><td>34.2%</td><td>1.81×</td><td>2.49×</td></tr>
-<tr><td>LSD</td><td>±59.8 ms</td><td>25.8%</td><td>1.60×</td><td>2.07×</td></tr>
+<table><thead><tr><th>detector</th><th>median</th><th>SD</th><th>CV (SD ÷ mean)</th>
+<th>p95</th><th>worst frame</th></tr></thead><tbody>
+<tr><td class="sweep">SweepLSD (one-pass)</td><td class="best">9.3 ms</td><td class="best">±2.0 ms</td>
+<td class="best">21.5%</td><td class="best">13.7 ms <span class="ceil">(1.48×)</span></td>
+<td class="best">15.3 ms <span class="ceil">(1.65×)</span></td></tr>
+<tr><td>ELSED</td><td>27.0 ms</td><td>±11.6 ms</td><td>40.7%</td>
+<td>56.5 ms <span class="ceil">(2.09×)</span></td><td>68.1 ms <span class="ceil">(2.52×)</span></td></tr>
+<tr><td>EDLines (ED_Lib)</td><td>37.1 ms</td><td>±13.6 ms</td><td>34.2%</td>
+<td>67.2 ms <span class="ceil">(1.81×)</span></td><td>92.5 ms <span class="ceil">(2.49×)</span></td></tr>
+<tr><td>LSD</td><td>224 ms</td><td>±59.8 ms</td><td>25.8%</td>
+<td>358 ms <span class="ceil">(1.60×)</span></td><td>465 ms <span class="ceil">(2.07×)</span></td></tr>
 </tbody></table>
+<p class="ceil">Absolute times are from this section's own run and sit a few percent above §1's
+medians (see the protocol note below); the ratios in parentheses are the machine-independent form.</p>
 
 <p>SweepLSD is the tightest on all three scale-free measures, and its absolute spread is smaller
 by a wider margin still — ±2.0 ms against ±11.6, ±13.6 and ±59.8 ms. Part of that last gap is

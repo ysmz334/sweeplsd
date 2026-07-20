@@ -12,7 +12,7 @@
 <text x="834.7" y="332" font-size="12" fill="#5b6270" text-anchor="middle">2.5×</text>
 <text x="542" y="350" font-size="12.5" fill="#5b6270" text-anchor="middle">per-image time ÷ that method's own median</text>
 <text x="154" y="54.0" font-size="13.5" fill="#1d2027" text-anchor="end" font-weight="700">SweepLSD (one-pass)</text>
-<text x="154" y="69.0" font-size="11" fill="#5b6270" text-anchor="end">median 9 ms</text>
+<text x="154" y="69.0" font-size="11" fill="#5b6270" text-anchor="end">median 9.3 ms</text>
 <line x1="222.4" y1="50.0" x2="556.6" y2="50.0" stroke="#7b2d8b" stroke-width="1.2" opacity=".55"/>
 <circle cx="222.4" cy="44.9" r="2" fill="#7b2d8b" opacity=".33"/>
 <circle cx="231.1" cy="54.2" r="2" fill="#7b2d8b" opacity=".33"/>
@@ -167,9 +167,9 @@
 <rect x="297.7" y="41.5" width="105.6" height="17" fill="#7b2d8b" fill-opacity=".18" stroke="#7b2d8b" stroke-width="1.1" rx="2"/>
 <line x1="346.9" y1="40.0" x2="346.9" y2="60.0" stroke="#7b2d8b" stroke-width="2.6"/>
 <line x1="556.6" y1="44.0" x2="556.6" y2="56.0" stroke="#7b2d8b" stroke-width="1.6"/>
-<text x="564.6" y="54.0" font-size="11.5" fill="#7b2d8b" text-anchor="start" stroke="#fff" stroke-width="3.4" paint-order="stroke" font-weight="700">CV 22%  ·  worst 1.65×</text>
+<text x="564.6" y="54.0" font-size="11.5" fill="#7b2d8b" text-anchor="start" stroke="#fff" stroke-width="3.4" paint-order="stroke" font-weight="700">CV 22%  ·  worst 15.3 ms (1.65×)</text>
 <text x="154" y="124.0" font-size="13.5" fill="#1d2027" text-anchor="end" >ELSED</text>
-<text x="154" y="139.0" font-size="11" fill="#5b6270" text-anchor="end">median 27 ms</text>
+<text x="154" y="139.0" font-size="11" fill="#5b6270" text-anchor="end">median 27.0 ms</text>
 <line x1="168.0" y1="120.0" x2="840.9" y2="120.0" stroke="#2f7ab8" stroke-width="1.2" opacity=".55"/>
 <circle cx="168.0" cy="114.9" r="2" fill="#2f7ab8" opacity=".33"/>
 <circle cx="168.0" cy="124.2" r="2" fill="#2f7ab8" opacity=".33"/>
@@ -324,9 +324,9 @@
 <rect x="267.5" y="111.5" width="164.1" height="17" fill="#2f7ab8" fill-opacity=".18" stroke="#2f7ab8" stroke-width="1.1" rx="2"/>
 <line x1="346.9" y1="110.0" x2="346.9" y2="130.0" stroke="#2f7ab8" stroke-width="2.6"/>
 <line x1="840.9" y1="114.0" x2="840.9" y2="126.0" stroke="#2f7ab8" stroke-width="1.6"/>
-<text x="832.9" y="124.0" font-size="11.5" fill="#2f7ab8" text-anchor="end" stroke="#fff" stroke-width="3.4" paint-order="stroke" >CV 41%  ·  worst 2.52×</text>
+<text x="832.9" y="124.0" font-size="11.5" fill="#2f7ab8" text-anchor="end" stroke="#fff" stroke-width="3.4" paint-order="stroke" >CV 41%  ·  worst 68.1 ms (2.52×)</text>
 <text x="154" y="194.0" font-size="13.5" fill="#1d2027" text-anchor="end" >EDLines (ED_Lib)</text>
-<text x="154" y="209.0" font-size="11" fill="#5b6270" text-anchor="end">median 37 ms</text>
+<text x="154" y="209.0" font-size="11" fill="#5b6270" text-anchor="end">median 37.1 ms</text>
 <line x1="211.0" y1="190.0" x2="831.5" y2="190.0" stroke="#3f9a63" stroke-width="1.2" opacity=".55"/>
 <circle cx="211.0" cy="184.9" r="2" fill="#3f9a63" opacity=".33"/>
 <circle cx="212.5" cy="194.2" r="2" fill="#3f9a63" opacity=".33"/>
@@ -481,7 +481,7 @@
 <rect x="291.8" y="181.5" width="119.1" height="17" fill="#3f9a63" fill-opacity=".18" stroke="#3f9a63" stroke-width="1.1" rx="2"/>
 <line x1="346.9" y1="180.0" x2="346.9" y2="200.0" stroke="#3f9a63" stroke-width="2.6"/>
 <line x1="831.5" y1="184.0" x2="831.5" y2="196.0" stroke="#3f9a63" stroke-width="1.6"/>
-<text x="823.5" y="194.0" font-size="11.5" fill="#3f9a63" text-anchor="end" stroke="#fff" stroke-width="3.4" paint-order="stroke" >CV 34%  ·  worst 2.49×</text>
+<text x="823.5" y="194.0" font-size="11.5" fill="#3f9a63" text-anchor="end" stroke="#fff" stroke-width="3.4" paint-order="stroke" >CV 34%  ·  worst 92.5 ms (2.49×)</text>
 <text x="154" y="264.0" font-size="13.5" fill="#1d2027" text-anchor="end" >LSD</text>
 <text x="154" y="279.0" font-size="11" fill="#5b6270" text-anchor="end">median 224 ms</text>
 <line x1="220.6" y1="260.0" x2="696.1" y2="260.0" stroke="#b8842f" stroke-width="1.2" opacity=".55"/>
@@ -638,5 +638,5 @@
 <rect x="292.9" y="251.5" width="113.3" height="17" fill="#b8842f" fill-opacity=".18" stroke="#b8842f" stroke-width="1.1" rx="2"/>
 <line x1="346.9" y1="250.0" x2="346.9" y2="270.0" stroke="#b8842f" stroke-width="2.6"/>
 <line x1="696.1" y1="254.0" x2="696.1" y2="266.0" stroke="#b8842f" stroke-width="1.6"/>
-<text x="704.1" y="264.0" font-size="11.5" fill="#b8842f" text-anchor="start" stroke="#fff" stroke-width="3.4" paint-order="stroke" >CV 26%  ·  worst 2.07×</text>
+<text x="704.1" y="264.0" font-size="11.5" fill="#b8842f" text-anchor="start" stroke="#fff" stroke-width="3.4" paint-order="stroke" >CV 26%  ·  worst 465 ms (2.07×)</text>
 </svg>
