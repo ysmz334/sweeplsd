@@ -36,6 +36,18 @@ not come from detecting less than the next-fastest method — SweepLSD detects ~
 with their recovery of the soft, low-contrast structure that SweepLSD's contrast-gated
 edge model misses (see the <a href="evaluation.html">evaluation page</a>).</p>
 
+<div class="note"><p style="margin-top:0"><b>About that OpenCV.</b> Building it with the same
+compiler as everything else means it is not the stock Windows OpenCV: it carries neither IPP
+(IPPICV / IPP-IW) nor a threading backend, so the <code>cv::Sobel</code> and
+<code>cv::GaussianBlur</code> calls inside ELSED and EDLines run as plain single-threaded OpenCV
+code. That is worth stating, because it sounds like a handicap on the baselines.</p>
+<p>Measured head-to-head, it is not. Running the same ELSED against the stock IPP-enabled,
+PPL-threaded OpenCV and against this one, interleaved image-by-image over the 150 photos
+(median of 11 runs each), the build used here comes out <b>15% faster</b> — 27.2 ms against
+31.1 ms median, and faster on all 150 images. The compiler's effect on ELSED's own scalar
+edge-drawing dominates whatever IPP contributes to its two preprocessing calls. The baselines
+are therefore represented by the faster of the two builds available, not the slower one.</p></div>
+
 <h2>2. Across image scales</h2>
 <p>ELSED's defaults are tuned for 640×480 inputs, where its published speed leadership was
 established, so the same 150 photographs were Lanczos-downsampled and re-timed
