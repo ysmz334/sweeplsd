@@ -15,11 +15,17 @@
 // Compiler portability. SWEEPLSD_NOINLINE is performance-load-bearing, not
 // cosmetic: featureRowInterior must stay out of large callers or GCC drops
 // its auto-vectorization (see the comment at its definition).
+// SWEEPLSD_ALWAYS_INLINE is equally load-bearing in the other direction:
+// endpointCore is large enough that Clang's and MSVC's inliner cost models keep
+// it as a real call, which leaves one call per pixel and blocks vectorization of
+// the row loop outright (GCC inlines it on its own).
 #if defined(_MSC_VER)
 #include <intrin.h>
 #define SWEEPLSD_NOINLINE __declspec(noinline)
+#define SWEEPLSD_ALWAYS_INLINE __forceinline
 #else
 #define SWEEPLSD_NOINLINE __attribute__((noinline))
+#define SWEEPLSD_ALWAYS_INLINE __attribute__((always_inline)) inline
 #endif
 
 namespace sweeplsd {
@@ -282,7 +288,7 @@ inline void nmsSubpixelRow(const std::uint16_t* pa, const std::uint16_t* pc,
 // dataflow fits in uint8_t — which lets the vectorizer pack 2-4x more lanes
 // per register than the equivalent int formulation.
 template <class L>
-inline bool endpointCore(L e) {
+SWEEPLSD_ALWAYS_INLINE bool endpointCore(L e) {
     using U = std::uint8_t;
     // Inner ring a..h (thesis fig. 3.11): a=left, b=TL, c=top, d=TR,
     // eR=right, fR=BR, gR=bottom, hR=BL.
